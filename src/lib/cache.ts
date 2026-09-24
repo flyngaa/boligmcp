@@ -1,4 +1,6 @@
 import Database from "better-sqlite3";
+import { mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 import { getConfig } from "../config.js";
 
 interface CacheRow {
@@ -12,6 +14,7 @@ let db: Database.Database | undefined;
 function getDb(): Database.Database {
   if (db) return db;
   const path = getConfig().cachePath;
+  if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
   db = new Database(path);
   db.exec(`
     CREATE TABLE IF NOT EXISTS cache (

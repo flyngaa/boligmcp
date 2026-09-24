@@ -1,0 +1,24 @@
+{
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "id": "View_V1Flader.9878",
+   "geometry_name": "Fladegeometri",
+   "properties": {
+    "Id": 9878,
+    "SenesteInddateringsdato": "2026-03-28T09:04:52.713Z",
+    "Lokalitetsnr": "789-00028",
+    "Lokalitetsnavn": "DK BENZIN",
+    "Lokalitetetsforureningsstatus": "V1 kortlagt",
+    "Lokalitetetsadresse": "Østergade 2 , 8830 Tjele",
+    "Regionsnavn": "Region Midtjylland",
+    "Lokalitetsejerlavkode": 771654,
+    "Lokalitetsmatrikler": "7n",
+    "Jordforureningsattester": "https://jord.miljoeportal.dk/report/?elav=771654&matrnr=7n",
+    "Optagelsesdato": null,
+    "GUID": "d2057d83-a778-445e-86b8-b4596ff1049b"
+   }
+  }
+ ]
+}

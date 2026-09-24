@@ -1,6 +1,6 @@
 {
   "name": "boligmcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "MCP server that gathers public Danish property data from official registers for a given address.",
   "type": "module",
   "bin": {
@@ -14,13 +14,17 @@
     ".env.example"
   ],
   "scripts": {
-    "dev": "tsx src/index.ts",
+    "dev": "BOLIGMCP_ENV_FILE=.env tsx src/index.ts",
     "build": "tsup",
     "start": "node dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "tsc --noEmit",
-    "prepublishOnly": "pnpm build"
+    "prepublishOnly": "pnpm build",
+    "codes:update": "tsx scripts/update-bbr-codes.ts",
+    "smoke": "BOLIGMCP_ENV_FILE=.env tsx scripts/live-report.ts",
+    "setup": "tsx src/index.ts setup",
+    "bundle:validate": "mcpb validate manifest.json"
   },
   "keywords": [
     "mcp",

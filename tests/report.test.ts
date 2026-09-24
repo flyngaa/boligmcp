@@ -74,6 +74,12 @@ describe("property_report", () => {
       fetchedAt: new Date().toISOString(),
       data: { items: [] },
     });
+    vi.spyOn(plan, "getSiteConditionsAt").mockResolvedValue({
+      status: "ok",
+      source: "plandata",
+      fetchedAt: new Date().toISOString(),
+      data: { items: [], checkedLayers: 16, failedLayers: [] },
+    });
     vi.spyOn(miljo, "getEnvironmentAt").mockResolvedValue({
       status: "ok",
       source: "miljoportal",

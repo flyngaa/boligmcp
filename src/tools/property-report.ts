@@ -1,8 +1,13 @@
+import { buildFlags, flagInputFrom } from "../analysis/flags.js";
+import { isOutbuilding } from "../lib/bbr-codes.js";
 import { lookupAddress } from "../sources/adressevaelger.js";
-import { getAreaStatsForMunicipality } from "../sources/dst.js";
+import { getAreaStatsForMunicipality, getParishStats, getRegionalMarket, marketCategoryFor } from "../sources/dst.js";
+import { getFootprints } from "../sources/datafordeler/geodanmark.js";
+import { getNearbyServices } from "../sources/datafordeler/nearby.js";
 import { getEnergyLabel } from "../sources/emodata.js";
 import { getEnvironmentAt } from "../sources/miljoportal.js";
-import { getPlansAt } from "../sources/plandata.js";
+import { getPlansAt, getSiteConditionsAt } from "../sources/plandata.js";
+import { getTerrainAt } from "../sources/datafordeler/dhm.js";
 import {
   getAdminAreasAt,
   getBuildingsAndUnits,
@@ -17,17 +22,22 @@ import type {
   Building,
   EnergyLabel,
   EnvironmentInfo,
+  Footprint,
+  Ground,
+  NearbyServices,
   Parcel,
   PlanInfo,
   PlanItem,
   PropertyIds,
+  SiteConditions,
   SourceResult,
+  TerrainInfo,
   Trade,
   Unit,
   Valuation,
 } from "../types.js";
 
-const TOKEN_BUDGET = 4000;
+const TOKEN_BUDGET = 10000;
 
 function estimateTokens(value: unknown): number {
   return Math.ceil(JSON.stringify(value).length / 4);
@@ -67,10 +77,59 @@ function unwrap<T>(settled: PromiseSettledResult<T | undefined>): T | undefined 
   return settled.status === "fulfilled" ? settled.value : undefined;
 }
 
-export async function buildPropertyReport(input: {
-  query?: string;
-  addressId?: string;
-}): Promise<unknown> {
+type BbrResult = SourceResult<{ buildings: Building[]; units: Unit[]; ground?: Ground }>;
+
+/**
+ * Plans and overlays are looked up at the main building's BBR coordinate, which lies inside the plot.
+ * The address point sits by the road and can fall outside the parcel polygon.
+ */
+export function lookupPointFor(
+  ids: PropertyIds | undefined,
+  buildings: BbrResult | undefined,
+): { x: number; y: number; kind: "building" | "address" } | undefined {
+  if (buildings?.status === "ok") {
+    const main =
+      buildings.data.buildings.find((b) => !isOutbuilding(b.usageCode) && b.coordinate) ??
+      buildings.data.buildings.find((b) => b.coordinate);
+    if (main?.coordinate) return { ...main.coordinate.epsg25832, kind: "building" };
+  }
+  const coord = ids?.coordinate?.epsg25832;
+  return coord ? { ...coord, kind: "address" } : undefined;
+}
+
+export function parcelRefs(ids: PropertyIds | undefined, parcel: SourceResult<Parcel[]> | undefined) {
+  const refs = parcel?.status === "ok" ? parcel.data.map((item) => ({ ...item })) : [];
+  if (ids?.cadastralDistrictCode && ids.cadastralNumber) {
+    refs.push({ cadastralDistrictCode: ids.cadastralDistrictCode, cadastralNumber: ids.cadastralNumber });
+  }
+  return refs;
+}
+
+export interface PropertyData {
+  idsResult: SourceResult<PropertyIds>;
+  ids?: PropertyIds;
+  buildings?: BbrResult;
+  parcel?: SourceResult<Parcel[]>;
+  valuation?: SourceResult<Valuation>;
+  trades?: SourceResult<Trade[]>;
+  admin?: SourceResult<AdminAreas>;
+  plans?: SourceResult<PlanInfo>;
+  site?: SourceResult<SiteConditions>;
+  environment?: SourceResult<EnvironmentInfo>;
+  stats?: SourceResult<AreaStats>;
+  energy?: SourceResult<EnergyLabel>;
+  terrain?: SourceResult<TerrainInfo>;
+  nearby?: SourceResult<NearbyServices>;
+  footprints?: SourceResult<Footprint[]>;
+  parish?: SourceResult<AreaStats>;
+  market?: SourceResult<AreaStats>;
+}
+
+/** Fetches every source for one address. `skip` leaves out sources a caller does not need. */
+export async function collectPropertyData(
+  input: { query?: string; addressId?: string },
+  skip: { stats?: boolean; energy?: boolean; trades?: boolean; nearby?: boolean } = {},
+): Promise<PropertyData> {
   const idsResult = await resolveProperty(input);
   const ids: PropertyIds | undefined = idsResult.status === "ok" ? idsResult.data : undefined;
 
@@ -80,99 +139,181 @@ export async function buildPropertyReport(input: {
     if (lookup.status === "ok") municipalityCode = lookup.data.municipalityCode;
   }
 
-  const coord = ids?.coordinate?.epsg25832;
-  const settled = await Promise.allSettled([
-    ids?.bfe
+  const addressCoord = ids?.coordinate?.epsg25832;
+  const first = await Promise.allSettled([
+    ids?.bfe || ids?.addressId
       ? getBuildingsAndUnits({ bfe: ids.bfe, addressId: ids.addressId })
       : Promise.resolve(undefined),
     ids?.bfe ? getParcels(ids.bfe) : Promise.resolve(undefined),
     ids?.bfe ? getValuation(ids.bfe) : Promise.resolve(undefined),
-    ids?.bfe ? getTrades(ids.bfe) : Promise.resolve(undefined),
-    coord ? getAdminAreasAt(coord.x, coord.y) : Promise.resolve(undefined),
-    coord ? getPlansAt(coord.x, coord.y) : Promise.resolve(undefined),
-    coord ? getEnvironmentAt(coord.x, coord.y) : Promise.resolve(undefined),
-    municipalityCode ? getAreaStatsForMunicipality(municipalityCode) : Promise.resolve(undefined),
-    getEnergyLabel({ address: ids?.designation, bfe: ids?.bfe }),
+    ids?.bfe && !skip.trades ? getTrades(ids.bfe) : Promise.resolve(undefined),
+    addressCoord ? getAdminAreasAt(addressCoord.x, addressCoord.y) : Promise.resolve(undefined),
+    skip.energy ? Promise.resolve(undefined) : getEnergyLabel({ address: ids?.designation, bfe: ids?.bfe }),
+  ]);
+  const buildings = unwrap(first[0]) as BbrResult | undefined;
+  const parcel = unwrap(first[1]) as SourceResult<Parcel[]> | undefined;
+  const valuation = unwrap(first[2]) as SourceResult<Valuation> | undefined;
+  const trades = unwrap(first[3]) as SourceResult<Trade[]> | undefined;
+  const admin = unwrap(first[4]) as SourceResult<AdminAreas> | undefined;
+  const energy = unwrap(first[5]) as SourceResult<EnergyLabel> | undefined;
+
+  if (admin?.status === "ok") municipalityCode = admin.data.municipalityCode ?? municipalityCode;
+
+  const point = lookupPointFor(ids, buildings);
+  const adminData = admin?.status === "ok" ? admin.data : undefined;
+  const mainBuilding = buildings?.status === "ok" ? buildings.data.buildings.find((b) => !isOutbuilding(b.usageCode)) : undefined;
+  const second = await Promise.allSettled([
+    point ? getPlansAt(point.x, point.y, { lookupPoint: point.kind }) : Promise.resolve(undefined),
+    point ? getSiteConditionsAt(point.x, point.y, { lookupPoint: point.kind }) : Promise.resolve(undefined),
+    point ? getEnvironmentAt(point.x, point.y, parcelRefs(ids, parcel)) : Promise.resolve(undefined),
+    municipalityCode && !skip.stats ? getAreaStatsForMunicipality(municipalityCode) : Promise.resolve(undefined),
+    point ? getTerrainAt(point.x, point.y, { lookupPoint: point.kind }) : Promise.resolve(undefined),
+    point && !skip.nearby ? getNearbyServices(point.x, point.y) : Promise.resolve(undefined),
+    buildings?.status === "ok" ? getFootprints(buildings.data.buildings) : Promise.resolve(undefined),
+    adminData?.parishCode && !skip.stats ? getParishStats(adminData.parishCode, adminData.parishName) : Promise.resolve(undefined),
+    adminData?.landsdelName && !skip.stats
+      ? getRegionalMarket(adminData.landsdelName, marketCategoryFor(mainBuilding?.usageCode, ids?.isCondominium))
+      : Promise.resolve(undefined),
   ]);
 
-  const buildings = unwrap(settled[0]) as
-    | SourceResult<{ buildings: Building[]; units: Unit[] }>
-    | undefined;
-  const parcel = unwrap(settled[1]) as SourceResult<Parcel[]> | undefined;
-  const valuation = unwrap(settled[2]) as SourceResult<Valuation> | undefined;
-  const trades = unwrap(settled[3]) as SourceResult<Trade[]> | undefined;
-  const admin = unwrap(settled[4]) as SourceResult<AdminAreas> | undefined;
-  const plans = unwrap(settled[5]) as SourceResult<PlanInfo> | undefined;
-  const environment = unwrap(settled[6]) as SourceResult<EnvironmentInfo> | undefined;
-  const stats = unwrap(settled[7]) as SourceResult<AreaStats> | undefined;
-  const energy = unwrap(settled[8]) as SourceResult<EnergyLabel> | undefined;
-
-  if (admin?.status === "ok") {
-    municipalityCode = admin.data.municipalityCode ?? municipalityCode;
-  }
-
-  const missing: Array<{ source: string; reason: string; detail?: string }> = [];
-  const collect = (result: SourceResult<unknown> | undefined) => {
-    if (!result) return;
-    if (result.status === "unavailable") {
-      missing.push({ source: result.source, reason: result.reason, detail: result.detail });
-    }
+  return {
+    idsResult,
+    ids,
+    buildings,
+    parcel,
+    valuation,
+    trades,
+    admin,
+    energy,
+    plans: unwrap(second[0]) as SourceResult<PlanInfo> | undefined,
+    site: unwrap(second[1]) as SourceResult<SiteConditions> | undefined,
+    environment: unwrap(second[2]) as SourceResult<EnvironmentInfo> | undefined,
+    stats: unwrap(second[3]) as SourceResult<AreaStats> | undefined,
+    terrain: unwrap(second[4]) as SourceResult<TerrainInfo> | undefined,
+    nearby: unwrap(second[5]) as SourceResult<NearbyServices> | undefined,
+    footprints: unwrap(second[6]) as SourceResult<Footprint[]> | undefined,
+    parish: unwrap(second[7]) as SourceResult<AreaStats> | undefined,
+    market: unwrap(second[8]) as SourceResult<AreaStats> | undefined,
   };
-  collect(idsResult);
-  for (const result of [buildings, parcel, valuation, trades, admin, plans, environment, stats, energy]) {
+}
+
+export function summarize(data: PropertyData) {
+  const { ids, buildings, valuation, trades, admin, plans, environment, energy, parcel, site } = data;
+  const buildingData = buildings?.status === "ok" ? buildings.data : undefined;
+  const main = buildingData?.buildings.find((b) => !isOutbuilding(b.usageCode)) ?? buildingData?.buildings[0];
+  const latestTrade = trades?.status === "ok" ? trades.data[0] : undefined;
+  const val = valuation?.status === "ok" ? valuation.data : undefined;
+  const planItems: PlanItem[] = plans?.status === "ok" ? plans.data.items : [];
+  const envItems = environment?.status === "ok" ? environment.data.items : [];
+  const framework = planItems.find((item) => item.type === "municipal_framework");
+  const plotArea =
+    parcel?.status === "ok" ? parcel.data.reduce((sum, item) => sum + (item.registeredArea ?? 0), 0) : undefined;
+
+  return {
+    designation: ids?.designation,
+    addressId: ids?.addressId,
+    bfe: ids?.bfe,
+    municipality: admin?.status === "ok" ? admin.data.municipalityName : undefined,
+    constructionYear: main?.constructionYear,
+    usage: main?.usage,
+    dwellingArea: buildingData?.units[0]?.dwellingArea ?? main?.dwellingArea,
+    rooms: buildingData?.units[0]?.rooms,
+    plotArea,
+    heating: main ? [main.heating, main.heatingFuel].filter(Boolean).join(" · ") : undefined,
+    tenure: buildingData?.units[0]?.tenure,
+    valuation: (val?.latestNew ?? val?.latest)?.propertyValue,
+    valuationYear: (val?.latestNew ?? val?.latest)?.year,
+    landValue: (val?.latestNew ?? val?.latest)?.landValue,
+    lastTrade: latestTrade?.price,
+    lastTradeDate: latestTrade?.date,
+    zone: planItems.find((item) => item.type === "zone")?.zoneStatus,
+    localPlans: planItems.filter((item) => item.type === "local_plan").length,
+    framework: framework ? `${framework.planNumber ?? ""} ${framework.name ?? ""}`.trim() : undefined,
+    environmentalHits: envItems.filter((item) => item.onProperty).length,
+    environmentalNearby: envItems.filter((item) => !item.onProperty).length,
+    siteConditions: site?.status === "ok" ? site.data.items.length : undefined,
+    terrainM: data.terrain?.status === "ok" ? data.terrain.data.terrainM : undefined,
+    energyLabel: energy?.status === "ok" ? energy.data.rating : undefined,
+  };
+}
+
+export function missingSources(data: PropertyData): Array<{ source: string; reason: string; detail?: string }> {
+  const missing: Array<{ source: string; reason: string; detail?: string }> = [];
+  const seen = new Set<string>();
+  const collect = (result: SourceResult<unknown> | undefined) => {
+    if (result?.status !== "unavailable") return;
+    const key = `${result.source}:${result.reason}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    missing.push({ source: result.source, reason: result.reason, detail: result.detail });
+  };
+  collect(data.idsResult);
+  for (const result of [
+    data.buildings,
+    data.parcel,
+    data.valuation,
+    data.trades,
+    data.admin,
+    data.plans,
+    data.site,
+    data.environment,
+    data.stats,
+    data.energy,
+    data.terrain,
+    data.nearby,
+    data.parish,
+    data.market,
+  ]) {
     collect(result);
   }
-  if (!ids?.bfe) {
+  if (!data.ids?.bfe) {
     missing.push({
       source: "matrikel",
       reason: "missing_credentials",
       detail: "BFE is unavailable until DATAFORDELER_API_KEY is set.",
     });
   }
+  return missing;
+}
 
-  const buildingData = buildings?.status === "ok" ? buildings.data : undefined;
-  const latestTrade = trades?.status === "ok" ? trades.data[0] : undefined;
-  const latestValuation = valuation?.status === "ok" ? valuation.data.latest : undefined;
-  const planItems: PlanItem[] = plans?.status === "ok" ? plans.data.items : [];
-  const envItems = environment?.status === "ok" ? environment.data.items : [];
-
-  const summary = {
-    designation: ids?.designation,
-    addressId: ids?.addressId,
-    bfe: ids?.bfe,
-    municipality: admin?.status === "ok" ? admin.data.municipalityName : undefined,
-    constructionYear: buildingData?.buildings[0]?.constructionYear,
-    usage: buildingData?.buildings[0]?.usage,
-    dwellingArea: buildingData?.units[0]?.dwellingArea,
-    valuation: latestValuation?.propertyValue,
-    lastTrade: latestTrade?.price,
-    lastTradeDate: latestTrade?.date,
-    localPlans: planItems.filter((item) => item.type === "local_plan").length,
-    environmentalHits: envItems.length,
-    energyLabel: energy?.status === "ok" ? energy.data.rating : undefined,
-  };
+export async function buildPropertyReport(input: {
+  query?: string;
+  addressId?: string;
+}): Promise<unknown> {
+  const data = await collectPropertyData(input);
+  const summary = summarize(data);
+  const flags = buildFlags(flagInputFrom(data));
+  const missing = missingSources(data);
 
   const report = {
     summary,
-    ids: idsResult,
-    buildings: buildings ? compact(buildings, 8) : undefined,
-    parcel: parcel ? compact(parcel, 8) : undefined,
-    valuation,
-    trades: trades ? compact(trades, 5) : undefined,
-    admin,
-    plans: plans ? compact(plans, 8) : undefined,
-    environment: environment ? compact(environment, 10) : undefined,
-    areaStats: stats,
-    energy,
+    flags,
+    ids: data.idsResult,
+    buildings: data.buildings ? compact(data.buildings, 8) : undefined,
+    parcel: data.parcel ? compact(data.parcel, 8) : undefined,
+    valuation: data.valuation,
+    trades: data.trades ? compact(data.trades, 5) : undefined,
+    admin: data.admin,
+    plans: data.plans ? compact(data.plans, 10) : undefined,
+    site: data.site ? compact(data.site, 15) : undefined,
+    environment: data.environment ? compact(data.environment, 10) : undefined,
+    areaStats: data.stats,
+    energy: data.energy,
+    terrain: data.terrain,
+    nearby: data.nearby,
+    footprints: data.footprints,
+    parishStats: data.parish,
+    market: data.market,
     missing,
   };
 
   if (estimateTokens(report) > TOKEN_BUDGET) {
     return {
       summary,
-      ids: idsResult.status === "ok" ? { status: "ok", data: ids } : idsResult,
+      flags,
+      ids: data.idsResult.status === "ok" ? { status: "ok", data: data.ids } : data.idsResult,
       missing,
-      note: "Report truncated to stay under ~4,000 tokens. Call individual tools for full fields.",
+      note: `Report truncated to stay under ~${TOKEN_BUDGET.toLocaleString("en")} tokens. Call individual tools for full fields.`,
     };
   }
   return report;

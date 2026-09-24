@@ -1,0 +1,18 @@
+{
+  "status": "ok",
+  "source": "dar",
+  "data": {
+    "addressId": "9b9a6a18-ffb7-4ece-a7f1-5368812e4719",
+    "houseNumberId": "0a3f5096-c91f-32b8-e044-0003ba298018",
+    "accessAddressId": "0a3f5096-c91f-32b8-e044-0003ba298018",
+    "designation": "Rådhuspladsen 2, 8000 Aarhus C",
+    "bfe": "5625626",
+    "isCondominium": false,
+    "cadastralDistrictCode": "2006351",
+    "cadastralNumber": "2154",
+    "coordinate": {
+      "epsg25832": { "x": 574743.25, "y": 6223719 },
+      "wgs84": { "lat": 56.15263054547659, "lon": 10.203206283240952 }
+    }
+  }
+}

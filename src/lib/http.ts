@@ -18,7 +18,7 @@ export interface FetchJsonOptions {
   accept?: string;
 }
 
-const DEFAULT_UA = "boligmcp/0.1.0 (https://github.com/flyngaa/boligmcp)";
+const DEFAULT_UA = "boligmcp/0.2.0 (https://github.com/flyngaa/boligmcp)";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -55,10 +55,11 @@ export async function fetchText(
       });
       const text = await response.text();
       if (!response.ok) {
+        const safeUrl = url.replace(/apiKey=[^&]+/gi, "apiKey=REDACTED");
         throw new HttpError(
-          `HTTP ${response.status} from ${url}: ${text.slice(0, 400)}`,
+          `HTTP ${response.status} from ${safeUrl}: ${text.slice(0, 400)}`,
           response.status,
-          url,
+          safeUrl,
         );
       }
       return text;

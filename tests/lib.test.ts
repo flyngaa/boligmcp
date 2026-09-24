@@ -65,6 +65,6 @@ describe("adressevaelger fixtures", () => {
 describe("bbr codes", () => {
   it("translates common codes", () => {
     expect(bbrUsage("140")).toMatch(/Etage/i);
-    expect(ownershipLabel("50")).toMatch(/Municipality/i);
+    expect(ownershipLabel("50")).toMatch(/kommune/i);
   });
 });

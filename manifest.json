@@ -1,0 +1,90 @@
+{
+  "manifest_version": "0.3",
+  "name": "boligmcp",
+  "display_name": "Bolig-MCP",
+  "version": "0.2.0",
+  "description": "Public Danish property data for an address: BBR, Matriklen, public valuation, plans, site conditions and investor flags.",
+  "author": {
+    "name": "Frederik Lyngaa"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/flyngaa/boligmcp"
+  },
+  "homepage": "https://github.com/flyngaa/boligmcp#readme",
+  "license": "MIT",
+  "keywords": [
+    "denmark",
+    "property",
+    "bbr",
+    "bolig",
+    "datafordeler"
+  ],
+  "server": {
+    "type": "node",
+    "entry_point": "dist/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": [
+        "${__dirname}/dist/index.js"
+      ],
+      "env": {
+        "DATAFORDELER_API_KEY": "${user_config.datafordeler_api_key}",
+        "EMODATA_USER": "${user_config.emodata_user}",
+        "EMODATA_PASSWORD": "${user_config.emodata_password}",
+        "DATAFORSYNINGEN_TOKEN": "${user_config.dataforsyningen_token}",
+        "DATAFORDELER_OAUTH_CLIENT_ID": "${user_config.datafordeler_oauth_client_id}",
+        "DATAFORDELER_OAUTH_CLIENT_SECRET": "${user_config.datafordeler_oauth_client_secret}"
+      }
+    }
+  },
+  "user_config": {
+    "datafordeler_api_key": {
+      "type": "string",
+      "title": "Datafordeleren API key (your own)",
+      "description": "Free. Create a web user at datafordeler.dk, add an IT-system with API-key authentication and paste its key here. Unlocks BBR, Matriklen, valuations, DAR and DAGI. Without it only plans, environment and statistics work.",
+      "sensitive": true,
+      "required": false
+    },
+    "datafordeler_oauth_client_id": {
+      "type": "string",
+      "title": "Datafordeler OAuth Client ID (optional)",
+      "description": "Only for sale prices (EJF), after Geodatastyrelsen approves your request.",
+      "sensitive": false,
+      "required": false
+    },
+    "datafordeler_oauth_client_secret": {
+      "type": "string",
+      "title": "Datafordeler OAuth Shared Secret (optional)",
+      "description": "Together with the Client ID. Not an API key.",
+      "sensitive": true,
+      "required": false
+    },
+    "emodata_user": {
+      "type": "string",
+      "title": "EMOData username (optional)",
+      "description": "Needs your own agreement with Energistyrelsen. Unlocks energy labels.",
+      "sensitive": false,
+      "required": false
+    },
+    "emodata_password": {
+      "type": "string",
+      "title": "EMOData password (optional)",
+      "sensitive": true,
+      "required": false,
+      "description": "Your own EMOData password, together with the username."
+    },
+    "dataforsyningen_token": {
+      "type": "string",
+      "title": "Dataforsyningen token (optional)",
+      "description": "Not used by the core tools yet.",
+      "sensitive": true,
+      "required": false
+    }
+  },
+  "compatibility": {
+    "runtimes": {
+      "node": ">=20.0.0"
+    }
+  }
+}

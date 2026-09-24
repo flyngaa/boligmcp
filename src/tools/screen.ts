@@ -1,0 +1,77 @@
+import { buildFlags, flagInputFrom } from "../analysis/flags.js";
+import { collectPropertyData, summarize } from "./property-report.js";
+
+export const SCREEN_MAX_ADDRESSES = 25;
+const CONCURRENCY = 3;
+
+async function mapLimited<T, R>(items: T[], limit: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const index = next++;
+      results[index] = await fn(items[index]!, index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+/**
+ * One compact row per address, so a portfolio of candidates can be compared side by side.
+ * Area statistics and energy labels are skipped: they are per-municipality or gated. Sales are
+ * included when the user has configured their own EJF access.
+ */
+export async function screenProperties(addresses: string[]) {
+  const unique = [...new Set(addresses.map((item) => item.trim()).filter(Boolean))].slice(0, SCREEN_MAX_ADDRESSES);
+  const rows = await mapLimited(unique, CONCURRENCY, async (query) => {
+    try {
+      const data = await collectPropertyData({ query }, { stats: true, energy: true });
+      if (data.idsResult.status !== "ok") {
+        return { query, error: data.idsResult.detail ?? data.idsResult.reason };
+      }
+      const summary = summarize(data);
+      const flags = buildFlags(flagInputFrom(data));
+      const valuation = data.valuation?.status === "ok" ? data.valuation.data.latestNew : undefined;
+      const perM2 =
+        valuation?.propertyValue && summary.dwellingArea
+          ? Math.round(valuation.propertyValue / summary.dwellingArea)
+          : undefined;
+      const rights = flags.find((flag) => flag.id === "building_rights");
+      return {
+        query,
+        designation: summary.designation,
+        bfe: summary.bfe,
+        usage: summary.usage,
+        constructionYear: summary.constructionYear,
+        dwellingArea: summary.dwellingArea,
+        rooms: summary.rooms,
+        plotArea: summary.plotArea,
+        heating: summary.heating,
+        tenure: summary.tenure,
+        zone: summary.zone,
+        localPlans: summary.localPlans,
+        lastSale: summary.lastTrade ? { price: summary.lastTrade, date: summary.lastTradeDate } : undefined,
+        newValuation: valuation
+          ? { year: valuation.year, propertyValue: valuation.propertyValue, landValue: valuation.landValue }
+          : undefined,
+        valuationPerDwellingM2: perM2,
+        buildingRights: rights?.title,
+        flagCounts: {
+          high: flags.filter((flag) => flag.severity === "high").length,
+          medium: flags.filter((flag) => flag.severity === "medium").length,
+          info: flags.filter((flag) => flag.severity === "info").length,
+        },
+        flags: flags.filter((flag) => flag.severity !== "info").map((flag) => `${flag.severity}: ${flag.title}`),
+      };
+    } catch (error) {
+      return { query, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+  return {
+    screened: rows.length,
+    skipped: Math.max(0, addresses.length - unique.length),
+    rows,
+    note: "Flags are signals for further checks, not advice. Area statistics and energy labels are left out; call property_report for one address.",
+  };
+}

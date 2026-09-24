@@ -1,17 +1,17 @@
-import { isSourceConfigured } from "../../catalog.js";
+import { setupHint } from "../../catalog.js";
 import { getConfig } from "../../config.js";
 import { cached } from "../../lib/cache.js";
-import { fetchJson } from "../../lib/http.js";
+import { fetchJson, HttpError } from "../../lib/http.js";
 import { unavailable, type SourceId, type SourceResult } from "../../types.js";
 
 const REGISTER_PATH: Record<string, string> = {
-  DAR: "DAR/3.0.0",
-  BBR: "BBR/3.0.0",
-  MAT: "MAT/3.0.0",
-  DAGI: "DAGI/3.0.0",
-  EJF: "EJF/3.0.0",
-  VUR: "VUR/1.0.0",
-  EBR: "EBR/1.0.0",
+  DAR: "DAR/v3",
+  BBR: "BBR/v3",
+  MAT: "MAT/v3",
+  DAGI: "DAGI/v2",
+  EJF: "EJF/v1",
+  VUR: "VUR/v2",
+  EBR: "EBR/v1",
 };
 
 export type DatafordelerRegister = keyof typeof REGISTER_PATH;
@@ -23,9 +23,59 @@ interface GraphQlResponse<T> {
 
 export function datafordelerUnavailable<T>(
   source: SourceId,
-  detail = "Set DATAFORDELER_API_KEY. Create a web user and IT-system API key at https://datafordeler.dk (GraphQL does not accept tjenestebruger passwords).",
+  detail = `No Datafordeleren API key is configured. Ask the user to add their own: ${setupHint("bbr")} Do not ask the user to paste the key into the chat.`,
 ): SourceResult<T> {
   return unavailable(source, "missing_credentials", detail);
+}
+
+export type DatafordelerAuth = "apiKey" | "oauth";
+
+const TOKEN_URL = "https://auth.datafordeler.dk/realms/distribution/protocol/openid-connect/token";
+let token: { value: string; expiresAt: number; clientId: string } | undefined;
+
+export function resetOAuthTokenForTests(): void {
+  token = undefined;
+}
+
+/** Client-credentials token for the user's own OAuth IT-system, reused until shortly before it expires. */
+export async function getOAuthToken(): Promise<string> {
+  const { datafordelerOAuthClientId: clientId, datafordelerOAuthClientSecret: secret } = getConfig();
+  if (!clientId || !secret) throw new Error("MISSING_OAUTH: DATAFORDELER_OAUTH_CLIENT_ID and _SECRET are not set");
+  if (token && token.clientId === clientId && token.expiresAt > Date.now() + 60_000) return token.value;
+  const response = await fetch(TOKEN_URL, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ grant_type: "client_credentials", client_id: clientId, client_secret: secret }),
+  });
+  if (!response.ok) {
+    throw new Error(
+      response.status === 401 || response.status === 400
+        ? "OAUTH_REJECTED: Datafordeleren rejected the OAuth Client ID or Shared Secret."
+        : `OAuth token request failed with HTTP ${response.status}.`,
+    );
+  }
+  const body = (await response.json()) as { access_token?: string; expires_in?: number };
+  if (!body.access_token) throw new Error("OAuth token response had no access_token.");
+  token = { value: body.access_token, expiresAt: Date.now() + (body.expires_in ?? 300) * 1000, clientId };
+  return token.value;
+}
+
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
+export function extractNodes<T extends Record<string, unknown>>(
+  data: T | undefined,
+  entity: string,
+): Array<Record<string, unknown>> {
+  if (!data) return [];
+  const block = data[entity];
+  if (Array.isArray(block)) return block as Array<Record<string, unknown>>;
+  if (block && typeof block === "object") {
+    const nodes = (block as { nodes?: unknown }).nodes;
+    if (Array.isArray(nodes)) return nodes as Array<Record<string, unknown>>;
+  }
+  return [];
 }
 
 export async function graphql<T>(
@@ -34,20 +84,41 @@ export async function graphql<T>(
   variables: Record<string, unknown> = {},
   cacheKey?: string,
   ttlSeconds = 86_400,
+  auth: DatafordelerAuth = "apiKey",
 ): Promise<T> {
-  const key = getConfig().datafordelerApiKey;
-  if (!key) {
-    throw new Error("DATAFORDELER_API_KEY is not set");
-  }
   const path = REGISTER_PATH[register];
-  const url = `https://graphql.datafordeler.dk/${path}?apiKey=${encodeURIComponent(key)}`;
+  let url = `https://graphql.datafordeler.dk/${path}`;
+  if (auth === "apiKey") {
+    const key = getConfig().datafordelerApiKey;
+    if (!key) throw new Error("DATAFORDELER_API_KEY is not set");
+    url += `?apiKey=${encodeURIComponent(key)}`;
+  }
   const loader = async () => {
-    const response = await fetchJson<GraphQlResponse<T>>(url, {
-      method: "POST",
-      body: { query, variables },
-    });
+    let response: GraphQlResponse<T>;
+    try {
+      const headers: Record<string, string> = auth === "oauth" ? { authorization: `Bearer ${await getOAuthToken()}` } : {};
+      response = await fetchJson<GraphQlResponse<T>>(url, {
+        method: "POST",
+        headers,
+        body: { query, variables },
+      });
+    } catch (error) {
+      if (error instanceof HttpError && error.status === 401) {
+        throw new Error(
+          "Datafordeleren rejected the API key (401). Confirm it is an IT-system API-key (not ClientId) and that at least 15 minutes have passed since it was created.",
+        );
+      }
+      if (error instanceof HttpError && error.status === 403) {
+        throw new Error(`FORBIDDEN: Datafordeleren denied this register for the current ${auth === "oauth" ? "OAuth IT-system" : "API key"}.`);
+      }
+      throw error;
+    }
     if (response.errors?.length) {
-      throw new Error(response.errors.map((error) => error.message).join("; "));
+      const message = response.errors.map((item) => item.message).join("; ");
+      if (/not authorized|DAF-AUTH/i.test(message)) {
+        throw new Error(`FORBIDDEN: ${message}`);
+      }
+      throw new Error(message);
     }
     if (!response.data) {
       throw new Error(`Empty GraphQL data from ${register}`);
@@ -58,9 +129,32 @@ export async function graphql<T>(
   return loader();
 }
 
-export function requireDatafordeler<T>(source: SourceId): SourceResult<T> | undefined {
-  if (!isSourceConfigured(source === "dar" ? "dar" : source)) {
-    return datafordelerUnavailable(source);
-  }
-  return undefined;
+export async function queryNodes(
+  register: DatafordelerRegister,
+  entity: string,
+  fields: string,
+  where: Record<string, unknown>,
+  first = 20,
+  options: { temporal?: boolean; auth?: DatafordelerAuth } = {},
+): Promise<Array<Record<string, unknown>>> {
+  const whereLiteral = JSON.stringify(where).replace(/"([^"]+)":/g, "$1:");
+  const temporal =
+    options.temporal === false
+      ? ""
+      : `virkningstid: "${nowIso()}"\n        registreringstid: "${nowIso()}"`;
+  const query = `
+    query {
+      ${entity}(
+        first: ${first}
+        ${temporal}
+        where: ${whereLiteral}
+      ) {
+        nodes { ${fields} }
+      }
+    }
+  `;
+  // Fields, page size and temporality change the answer, so they belong in the key.
+  const cacheKey = `daf:${register}:${entity}:${JSON.stringify(where)}:${first}:${options.temporal === false ? "nt" : "t"}:${fields}`;
+  const data = await graphql<Record<string, unknown>>(register, query, {}, cacheKey, 86_400, options.auth);
+  return extractNodes(data, entity);
 }

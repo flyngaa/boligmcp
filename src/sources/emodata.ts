@@ -1,4 +1,4 @@
-import { isSourceConfigured } from "../catalog.js";
+import { isSourceConfigured, setupHint } from "../catalog.js";
 import { getConfig } from "../config.js";
 import { ttlFor } from "../catalog.js";
 import { cached } from "../lib/cache.js";
@@ -25,7 +25,7 @@ export async function getEnergyLabel(query: {
     return unavailable(
       "emodata",
       "missing_credentials",
-      "Set EMODATA_USER and EMODATA_PASSWORD after registering with Energistyrelsen.",
+      `No EMOData credentials are configured. ${setupHint("emodata")} Do not ask the user to paste them into the chat.`,
     );
   }
 
