@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { resetConfigForTests } from "../src/config.js";
+import { getConfig, resetConfigForTests } from "../src/config.js";
 import { getEnergyLabel } from "../src/sources/emodata.js";
 import { getValuation } from "../src/sources/datafordeler/registers.js";
 import { getPlansAt } from "../src/sources/plandata.js";
@@ -58,6 +58,11 @@ describe("plandata mapper", () => {
 });
 
 describe("dst", () => {
+  it("never writes mocked responses to the user's cache", () => {
+    resetConfigForTests(undefined);
+    expect(getConfig().cachePath).toBe(":memory:");
+  });
+
   it("parses Statbank JSON-stat", async () => {
     vi.spyOn(http, "fetchJson").mockResolvedValue(folkFixture);
     const result = await getAreaStatsForMunicipality("101");

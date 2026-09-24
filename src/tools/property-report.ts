@@ -253,7 +253,12 @@ export function summarize(data: PropertyData) {
     lastTradeDate: latestTrade?.date,
     zone: planItems.find((item) => item.type === "zone")?.zoneStatus,
     localPlans: planItems.filter((item) => item.type === "local_plan").length,
-    framework: framework ? `${framework.planNumber ?? ""} ${framework.name ?? ""}`.trim() : undefined,
+    // Some municipalities repeat the plan number in the name ("R24.B.4.16 - B4").
+    framework: framework
+      ? framework.planNumber && !framework.name?.startsWith(framework.planNumber)
+        ? `${framework.planNumber} ${framework.name ?? ""}`.trim()
+        : framework.name ?? framework.planNumber
+      : undefined,
     environmentalHits: envItems.filter((item) => item.onProperty).length,
     environmentalNearby: envItems.filter((item) => !item.onProperty).length,
     siteConditions: site?.status === "ok" ? site.data.items.length : undefined,
@@ -286,6 +291,7 @@ export function missingSources(data: PropertyData): Array<{ source: string; reas
     data.energy,
     data.terrain,
     data.nearby,
+    data.footprints,
     data.parish,
     data.market,
   ]) {

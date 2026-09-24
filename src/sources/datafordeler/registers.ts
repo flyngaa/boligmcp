@@ -367,6 +367,10 @@ function mapUnit(item: Record<string, unknown>, addressId: string | undefined): 
   };
 }
 
+// BBR code list "Livscyklus": 9 afsluttet (e.g. demolished), 10 historisk, 11 fejlregistreret, 14 henlagt.
+const ENDED_LIFECYCLES = new Set(["9", "10", "11", "14"]);
+const isCurrentRow = (row: Record<string, unknown>) => !ENDED_LIFECYCLES.has(str(row.status) ?? "");
+
 export async function getBuildingsAndUnits(
   args: { bfe?: string; addressId?: string },
 ): Promise<SourceResult<{ buildings: Building[]; units: Unit[]; ground?: Ground }>> {
@@ -399,14 +403,13 @@ export async function getBuildingsAndUnits(
       }
     }
 
-    // Lifecycle 10 = historisk, 11 = fejlregistreret (BBR code list "Livscyklus").
-    buildingRows = buildingRows.filter((row) => !["10", "11"].includes(str(row.status) ?? ""));
+    buildingRows = buildingRows.filter(isCurrentRow);
 
     const unitRows = (
       args.addressId
         ? await queryNodes("BBR", "BBR_Enhed", UNIT_FIELDS, { adresseIdentificerer: { eq: args.addressId } })
         : []
-    ).filter((row) => !["10", "11"].includes(str(row.status) ?? ""));
+    ).filter(isCurrentRow);
 
     const buildings = await Promise.all(
       buildingRows.map(async (item) => {

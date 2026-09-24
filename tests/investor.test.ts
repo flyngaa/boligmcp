@@ -307,6 +307,7 @@ describe("BBR fetch", () => {
         { id_lokalId: "b1", status: "6", grund: "g1", byg021BygningensAnvendelse: "120" },
         { id_lokalId: "b2", status: "6", grund: "g1", byg021BygningensAnvendelse: "920", byg026Opfoerelsesaar: 2005, byg032YdervaeggensMateriale: "5" },
         { id_lokalId: "b3", status: "10", grund: "g1", byg021BygningensAnvendelse: "930" },
+        { id_lokalId: "b4", status: "9", grund: "g1", byg021BygningensAnvendelse: "140" },
       ],
       BBR_Etage: [{ eta006BygningensEtagebetegnelse: "01", eta021ArealAfUdnyttetDelAfTagetage: 59, eta025Etagetype: "1" }],
       BBR_Enhed: [
@@ -335,6 +336,22 @@ describe("BBR fetch", () => {
     expect(result.data.units).toHaveLength(1);
     expect(result.data.units[0]).toMatchObject({ dwellingArea: 144, tenure: "Benyttet af ejeren", toilet: true, kitchen: true });
     expect(result.data.ground).toMatchObject({ waterSupply: "Alment vandforsyningsanlæg", drainage: "Spildevandskloakeret: Spildevand" });
+  });
+});
+
+describe("report summary", () => {
+  it("does not repeat a plan number the framework name already has", () => {
+    const plans = (name: string) => ({
+      idsResult: { status: "ok" as const, source: "dar" as const, fetchedAt: "", data: {} },
+      plans: {
+        status: "ok" as const,
+        source: "plandata" as const,
+        fetchedAt: "",
+        data: { items: [{ type: "municipal_framework" as const, planNumber: "R24.B.4.16", name }], nearby: [] },
+      },
+    });
+    expect(report.summarize(plans("R24.B.4.16 - B4")).framework).toBe("R24.B.4.16 - B4");
+    expect(report.summarize(plans("Vonsild Øst")).framework).toBe("R24.B.4.16 Vonsild Øst");
   });
 });
 

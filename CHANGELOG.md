@@ -9,6 +9,10 @@
 - `private_water` explains a private waterworks (BBR code 2) separately from an own well or borehole.
 - Landzone is inferred when no zone polygon covers the point: Plandata's zone map only has byzone and sommerhusområde, so `rural_zone` never fired before.
 - `no_local_plan` no longer says a municipal framework applies when there is none.
+- Tests no longer write mocked responses to the user's cache. `tests/sources.test.ts` used the real cache file, so after `pnpm test` Copenhagen's municipality statistics showed the fixture's 661,000 for every figure for up to a week. Vitest now always sets `CACHE_PATH=:memory:`.
+- BBR also drops buildings and units with lifecycle 9 (afsluttet) and 14 (henlagt). A demolished building with no data showed up as a second building on the plot.
+- The summary no longer repeats a plan number the framework name already starts with ("R24.B.4.16 R24.B.4.16 - B4").
+- A missing GeoDanmark outline is now listed under `missing`.
 - VUR tells the new valuation system apart by its id pattern (one digit, then zeros). Old-system ids starting with 386 or 403 were counted as new.
 
 ## 0.2.0 — 2026-09-24
