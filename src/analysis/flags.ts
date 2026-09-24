@@ -287,8 +287,14 @@ export function buildFlags(input: FlagInput): Flag[] {
       id: "private_water",
       // Own well or single-property abstraction is the owner's responsibility; a private waterworks usually is not.
       severity: water === "3" || water === "4" ? "medium" : "info",
-      title: "Privat vandforsyning",
-      detail: `Vandforsyning: ${input.ground?.waterSupply}. Tjek vandprøver og ansvar for anlægget.`,
+      title: water === "3" || water === "4" ? "Egen vandforsyning" : "Privat vandforsyning",
+      detail: `Vandforsyning: ${input.ground?.waterSupply}. ${
+        water === "3" || water === "4"
+          ? "Ejeren har selv ansvaret for boring eller brønd og for vandkvaliteten. Bed om nye vandprøver."
+          : water === "2"
+            ? "Typisk et forbrugerejet vandværk, ikke en egen boring. Se værkets seneste vandanalyser."
+            : "Tjek hvem der driver anlægget, og se de seneste vandanalyser."
+      }`,
       sources: ["bbr"],
     });
   }
@@ -345,13 +351,29 @@ export function buildFlags(input: FlagInput): Flag[] {
   }
   const sewer = site.find((item) => item.category === "sewer_catchment" && /planlagt:/.test(item.details ?? ""));
   if (sewer) {
-    add({
-      id: "planned_sewer_change",
-      severity: "medium",
-      title: "Planlagt ændring af kloakering",
-      detail: `${sewer.value} · ${sewer.details}. Separatkloakering kan kræve arbejde på egen grund.`,
-      sources: ["plandata"],
-    });
+    const planned = sewer.details?.match(/planlagt: ([^·]+)/)?.[1]?.trim() ?? "";
+    const deadline = Number(sewer.details?.match(/slutår (\d{4})/)?.[1]) || undefined;
+    // The wastewater plan lags behind BBR: if the ground is already drained the planned way, the change is done.
+    const kind = (text: string | undefined) => text?.match(/^(Separat|Fælles|Spildevands)kloakeret/i)?.[1]?.toLowerCase();
+    const alreadyDone = kind(planned) !== undefined && kind(planned) === kind(input.ground?.drainage);
+    if (alreadyDone) {
+      add({
+        id: "planned_sewer_change",
+        severity: "info",
+        title: "Spildevandsplanen er ikke opdateret",
+        detail: `Plandata: ${sewer.value} · ${sewer.details}. BBR registrerer allerede afløbet som ${input.ground?.drainage}, så omlægningen er formentlig gennemført. Bekræft hos kommunen.`,
+        sources: ["plandata", "bbr"],
+      });
+    } else {
+      const overdue = deadline !== undefined && deadline < new Date().getFullYear() ? " Slutåret er passeret, så spørg kommunen om status." : "";
+      add({
+        id: "planned_sewer_change",
+        severity: "medium",
+        title: "Planlagt ændring af kloakering",
+        detail: `${sewer.value} · ${sewer.details}. Separatkloakering kan kræve arbejde på egen grund.${overdue}`,
+        sources: ["plandata"],
+      });
+    }
   }
 
   // Plans

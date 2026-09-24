@@ -255,6 +255,7 @@ const BUILDING_FIELDS = [
 
 const UNIT_FIELDS = [
   "id_lokalId",
+  "status",
   "bygning",
   "enh020EnhedensAnvendelse",
   "enh023Boligtype",
@@ -401,9 +402,11 @@ export async function getBuildingsAndUnits(
     // Lifecycle 10 = historisk, 11 = fejlregistreret (BBR code list "Livscyklus").
     buildingRows = buildingRows.filter((row) => !["10", "11"].includes(str(row.status) ?? ""));
 
-    const unitRows = args.addressId
-      ? await queryNodes("BBR", "BBR_Enhed", UNIT_FIELDS, { adresseIdentificerer: { eq: args.addressId } })
-      : [];
+    const unitRows = (
+      args.addressId
+        ? await queryNodes("BBR", "BBR_Enhed", UNIT_FIELDS, { adresseIdentificerer: { eq: args.addressId } })
+        : []
+    ).filter((row) => !["10", "11"].includes(str(row.status) ?? ""));
 
     const buildings = await Promise.all(
       buildingRows.map(async (item) => {

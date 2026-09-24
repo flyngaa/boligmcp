@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixes
+- BBR units with lifecycle status historic (10) or misregistered (11) are dropped, as buildings already were. A misregistered unit could add a phantom dwelling to the address.
+- A slow Statistikbanken no longer holds up `property_report`: 8 s per request with one retry, and area, parish and market statistics are left out after 15 s. One report took 194 s before this change.
+- `planned_sewer_change` is info, not medium, when BBR already has the planned drainage type (the wastewater plan lags behind). Otherwise it says so when the deadline year has passed.
+- `private_water` explains a private waterworks (BBR code 2) separately from an own well or borehole.
+
 ## 0.2.0 — 2026-09-24
 
 Built for investors screening many properties.

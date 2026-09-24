@@ -240,6 +240,33 @@ describe("investor flags", () => {
     expect(ids).not.toContain("asbestos_era");
   });
 
+  it("tones the sewer flag down when BBR already has the planned drainage", () => {
+    const site = (details: string) => ({
+      items: [{ category: "sewer_catchment" as const, label: "Kloakopland", value: "Ukloakeret", details }],
+      checkedLayers: 1,
+      failedLayers: [],
+    });
+    const separat = { drainageCode: "5", drainage: "Separatkloakeret: spildevand + tag- og overfladevand" };
+    const done = buildFlags({ site: site("Opland · planlagt: Separatkloakeret · slutår 2025"), ground: separat });
+    expect(done.find((flag) => flag.id === "planned_sewer_change")).toMatchObject({ severity: "info", title: "Spildevandsplanen er ikke opdateret" });
+
+    const pending = buildFlags({
+      site: site("Opland · planlagt: Separatkloakeret · slutår 2020"),
+      ground: { drainageCode: "1", drainage: "Fælleskloakeret: spildevand + tag- og overfladevand" },
+    });
+    const flag = pending.find((item) => item.id === "planned_sewer_change");
+    expect(flag?.severity).toBe("medium");
+    expect(flag?.detail).toMatch(/Slutåret er passeret/);
+  });
+
+  it("describes a private waterworks differently from an own well", () => {
+    const works = buildFlags({ ground: { waterSupplyCode: "2", waterSupply: "Privat vandforsyningsanlæg" } });
+    expect(works.find((flag) => flag.id === "private_water")).toMatchObject({ severity: "info", title: "Privat vandforsyning" });
+    expect(works.find((flag) => flag.id === "private_water")?.detail).toMatch(/forbrugerejet vandværk/);
+    const well = buildFlags({ ground: { waterSupplyCode: "4", waterSupply: "Brønd" } });
+    expect(well.find((flag) => flag.id === "private_water")).toMatchObject({ severity: "medium", title: "Egen vandforsyning" });
+  });
+
   it("finds a basement whose area is only in the floor total", () => {
     const building = { ...house, floorDetails: [{ designation: "kl", typeCode: "2", totalArea: 22, basementArea: null }] };
     const flag = buildFlags({ buildings: [building] }).find((item) => item.id === "area_composition");
@@ -265,7 +292,10 @@ describe("BBR fetch", () => {
         { id_lokalId: "b3", status: "10", grund: "g1", byg021BygningensAnvendelse: "930" },
       ],
       BBR_Etage: [{ eta006BygningensEtagebetegnelse: "01", eta021ArealAfUdnyttetDelAfTagetage: 59, eta025Etagetype: "1" }],
-      BBR_Enhed: [{ id_lokalId: "u1", enh027ArealTilBeboelse: 144, enh045Udlejningsforhold: "2", enh032Toiletforhold: "T", enh034Koekkenforhold: "E" }],
+      BBR_Enhed: [
+        { id_lokalId: "u1", status: "6", enh027ArealTilBeboelse: 144, enh045Udlejningsforhold: "2", enh032Toiletforhold: "T", enh034Koekkenforhold: "E" },
+        { id_lokalId: "u0", status: "11", enh027ArealTilBeboelse: 144, enh045Udlejningsforhold: "1" },
+      ],
       BBR_Grund: [{ id_lokalId: "g1", gru009Vandforsyning: "1", gru010Afloebsforhold: "9" }],
     };
     vi.spyOn(http, "fetchJson").mockImplementation(async (_url: string, options?: http.FetchJsonOptions) => {
@@ -285,12 +315,26 @@ describe("BBR fetch", () => {
     expect(main?.coordinate?.epsg25832).toEqual({ x: 521752.91, y: 6251216.77 });
     expect(main?.floorDetails?.[0]).toMatchObject({ type: "Tagetage", usedAtticArea: 59 });
     expect(outbuilding).toMatchObject({ usage: "Carport", outerWall: "Træ" });
+    expect(result.data.units).toHaveLength(1);
     expect(result.data.units[0]).toMatchObject({ dwellingArea: 144, tenure: "Benyttet af ejeren", toilet: true, kitchen: true });
     expect(result.data.ground).toMatchObject({ waterSupply: "Alment vandforsyningsanlæg", drainage: "Spildevandskloakeret: Spildevand" });
   });
 });
 
 describe("Danmarks Statistik", () => {
+  it("gives up on slow statistics after the deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const slow = new Promise<string>(() => {});
+      const result = report.withDeadline(slow, 15_000, () => "timeout");
+      await vi.advanceTimersByTimeAsync(15_000);
+      await expect(result).resolves.toBe("timeout");
+      await expect(report.withDeadline(Promise.resolve("ok"), 15_000, () => "timeout")).resolves.toBe("ok");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("normalises four-digit municipality codes", () => {
     expect(dstMunicipalityCode("0791")).toBe("791");
     expect(dstMunicipalityCode("101")).toBe("101");

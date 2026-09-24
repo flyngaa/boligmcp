@@ -5,6 +5,9 @@ import { ok, unavailable, type AreaStat, type AreaStats, type SourceResult } fro
 
 const BASE = "https://api.statbank.dk/v1/data";
 
+// Statbank normally answers in well under a second; a slow reply means it is struggling, so give up early.
+const HTTP = { timeoutMs: 8_000, retries: 1 };
+
 interface DstTableResponse {
   dataset?: {
     dimension?: Record<
@@ -31,7 +34,7 @@ async function table(
   const params = new URLSearchParams({ OMRÅDE: municipalityCode, lang: "da", ...extra });
   const url = `${BASE}/${name}/JSONSTAT?${params.toString()}`;
   return cached(`dst:${name}:${municipalityCode}:${JSON.stringify(extra)}`, ttlFor("dst"), () =>
-    fetchJson<DstTableResponse>(url),
+    fetchJson<DstTableResponse>(url, HTTP),
   );
 }
 
@@ -209,7 +212,7 @@ function categoryKeys(response: JsonStat, dimension: string): string[] {
 async function statbank(table: string, params: Record<string, string>): Promise<JsonStat> {
   const query = new URLSearchParams({ lang: "da", ...params });
   return cached(`dst:${table}:${query.toString()}`, ttlFor("dst"), () =>
-    fetchJson<JsonStat>(`${BASE}/${table}/JSONSTAT?${query.toString()}`),
+    fetchJson<JsonStat>(`${BASE}/${table}/JSONSTAT?${query.toString()}`, HTTP),
   );
 }
 
@@ -306,6 +309,7 @@ export async function getRegionalMarket(landsdelName: string, category: MarketCa
     const info = await cached(`dst:tableinfo:EJ56`, ttlFor("dst"), () =>
       fetchJson<{ variables: Array<{ id: string; values: Array<{ id: string; text: string }> }> }>(
         "https://api.statbank.dk/v1/tableinfo/EJ56?format=JSON&lang=da",
+        HTTP,
       ),
     );
     const area = info.variables

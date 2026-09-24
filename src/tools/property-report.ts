@@ -16,6 +16,7 @@ import {
   getValuation,
 } from "../sources/datafordeler/registers.js";
 import { resolveProperty } from "../resolve.js";
+import { unavailable } from "../types.js";
 import type {
   AdminAreas,
   AreaStats,
@@ -125,6 +126,22 @@ export interface PropertyData {
   market?: SourceResult<AreaStats>;
 }
 
+/** Statistics are context, not core data: after this long the report goes out without them. */
+const STATS_DEADLINE_MS = 15_000;
+
+/** Resolves to `fallback` if `work` is not done in time. The work keeps running and still fills the cache. */
+export function withDeadline<T>(work: Promise<T>, ms: number, fallback: () => T): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const late = new Promise<T>((resolve) => {
+    timer = setTimeout(() => resolve(fallback()), ms);
+    timer.unref();
+  });
+  return Promise.race([work, late]).finally(() => clearTimeout(timer));
+}
+
+const statsTimeout = () =>
+  unavailable<AreaStats>("dst", "upstream_error", `Statistikbanken did not answer within ${STATS_DEADLINE_MS / 1000} s`);
+
 /** Fetches every source for one address. `skip` leaves out sources a caller does not need. */
 export async function collectPropertyData(
   input: { query?: string; addressId?: string },
@@ -166,13 +183,21 @@ export async function collectPropertyData(
     point ? getPlansAt(point.x, point.y, { lookupPoint: point.kind }) : Promise.resolve(undefined),
     point ? getSiteConditionsAt(point.x, point.y, { lookupPoint: point.kind }) : Promise.resolve(undefined),
     point ? getEnvironmentAt(point.x, point.y, parcelRefs(ids, parcel)) : Promise.resolve(undefined),
-    municipalityCode && !skip.stats ? getAreaStatsForMunicipality(municipalityCode) : Promise.resolve(undefined),
+    municipalityCode && !skip.stats
+      ? withDeadline(getAreaStatsForMunicipality(municipalityCode), STATS_DEADLINE_MS, statsTimeout)
+      : Promise.resolve(undefined),
     point ? getTerrainAt(point.x, point.y, { lookupPoint: point.kind }) : Promise.resolve(undefined),
     point && !skip.nearby ? getNearbyServices(point.x, point.y) : Promise.resolve(undefined),
     buildings?.status === "ok" ? getFootprints(buildings.data.buildings) : Promise.resolve(undefined),
-    adminData?.parishCode && !skip.stats ? getParishStats(adminData.parishCode, adminData.parishName) : Promise.resolve(undefined),
+    adminData?.parishCode && !skip.stats
+      ? withDeadline(getParishStats(adminData.parishCode, adminData.parishName), STATS_DEADLINE_MS, statsTimeout)
+      : Promise.resolve(undefined),
     adminData?.landsdelName && !skip.stats
-      ? getRegionalMarket(adminData.landsdelName, marketCategoryFor(mainBuilding?.usageCode, ids?.isCondominium))
+      ? withDeadline(
+          getRegionalMarket(adminData.landsdelName, marketCategoryFor(mainBuilding?.usageCode, ids?.isCondominium)),
+          STATS_DEADLINE_MS,
+          statsTimeout,
+        )
       : Promise.resolve(undefined),
   ]);
 
