@@ -4,7 +4,12 @@ import { z } from "zod";
 import { listSourceStatus, SETUP_COMMAND } from "./catalog.js";
 import { resolveProperty } from "./resolve.js";
 import { lookupAddress, searchAddresses } from "./sources/adressevaelger.js";
-import { getAreaStatsForMunicipality } from "./sources/dst.js";
+import {
+  getAreaStatsForMunicipality,
+  getParishStats,
+  getRegionalMarket,
+  marketCategoryFor,
+} from "./sources/dst.js";
 import { getEnergyLabel } from "./sources/emodata.js";
 import { getEnvironmentAt } from "./sources/miljoportal.js";
 import { getPlansAt, getSiteConditionsAt } from "./sources/plandata.js";
@@ -21,8 +26,8 @@ import { buildPropertyReport, lookupPointFor, parcelRefs } from "./tools/propert
 import { SCREEN_MAX_ADDRESSES, screenProperties } from "./tools/screen.js";
 import { checkWatchlist, listWatchlist, unwatchProperty, watchProperty } from "./tools/watch.js";
 import { getNearbyServices } from "./sources/datafordeler/nearby.js";
-import { getParishStats, getRegionalMarket, marketCategoryFor } from "./sources/dst.js";
 import { unavailable } from "./types.js";
+import { VERSION } from "./version.js";
 
 /** The main building's coordinate when BBR has one, else the address point. */
 async function lookupPoint(addressId: string) {
@@ -40,7 +45,7 @@ export function createServer(): McpServer {
   const server = new McpServer(
     {
       name: "boligmcp",
-      version: "0.2.0",
+      version: VERSION,
     },
     { instructions: INSTRUCTIONS },
   );

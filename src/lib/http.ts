@@ -1,3 +1,5 @@
+import { VERSION } from "../version.js";
+
 export class HttpError extends Error {
   constructor(
     message: string,
@@ -18,7 +20,7 @@ export interface FetchJsonOptions {
   accept?: string;
 }
 
-const DEFAULT_UA = "boligmcp/0.2.0 (https://github.com/flyngaa/boligmcp)";
+const DEFAULT_UA = `boligmcp/${VERSION} (https://github.com/flyngaa/boligmcp)`;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));

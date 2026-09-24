@@ -1,6 +1,5 @@
-import { isSourceConfigured, setupHint } from "../catalog.js";
+import { isSourceConfigured, setupHint, ttlFor } from "../catalog.js";
 import { getConfig } from "../config.js";
-import { ttlFor } from "../catalog.js";
 import { cached } from "../lib/cache.js";
 import { fetchJson } from "../lib/http.js";
 import { ok, unavailable, type EnergyLabel, type SourceResult } from "../types.js";

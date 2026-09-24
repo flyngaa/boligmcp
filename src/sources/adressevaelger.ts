@@ -220,22 +220,3 @@ export async function lookupAddress(addressId: string): Promise<SourceResult<Add
     );
   }
 }
-
-export async function lookupHouseNumber(
-  houseNumberId: string,
-): Promise<SourceResult<AddressMatch>> {
-  try {
-    const url = `${BASE}/husnumre/${encodeURIComponent(houseNumberId)}?token=${encodeURIComponent(token())}`;
-    const data = await cached(`adv:hn:${houseNumberId}`, ttlFor("adressevaelger"), () =>
-      fetchJson<IdLookupResponse>(url),
-    );
-    const match = mapIdLookup(data);
-    return ok("adressevaelger", match);
-  } catch (error) {
-    return unavailable(
-      "adressevaelger",
-      "upstream_error",
-      error instanceof Error ? error.message : String(error),
-    );
-  }
-}

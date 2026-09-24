@@ -1,9 +1,10 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { listSourceStatus } from "../src/catalog.js";
 import { resetConfigForTests, type AppConfig } from "../src/config.js";
 import { bbrUsage, ownershipLabel } from "../src/lib/bbr-codes.js";
 import { coordinateFromEtrs89, etrs89ToWgs84 } from "../src/lib/geo.js";
-import { readFileSync } from "node:fs";
+import { VERSION } from "../src/version.js";
 import { mapIdLookup, mapSearchHit } from "../src/sources/adressevaelger.js";
 
 const searchFixture = JSON.parse(
@@ -66,5 +67,14 @@ describe("bbr codes", () => {
   it("translates common codes", () => {
     expect(bbrUsage("140")).toMatch(/Etage/i);
     expect(ownershipLabel("50")).toMatch(/kommune/i);
+  });
+});
+
+describe("version", () => {
+  it("matches the bundle manifest", () => {
+    const manifest = JSON.parse(readFileSync(new URL("../manifest.json", import.meta.url), "utf8")) as {
+      version: string;
+    };
+    expect(manifest.version).toBe(VERSION);
   });
 });
