@@ -134,6 +134,20 @@ describe("VUR history", () => {
   });
 });
 
+describe("VUR systems", () => {
+  it("tells new-system ids from old ones with another prefix", () => {
+    // Brandelev Stationsvej 10, 4700 Næstved: old-system ids start with 386 and 403.
+    const valuation = mapValuationRows("2564655", [
+      { id: 403005860015631, aar: 2001, ejendomvaerdiBeloeb: 560000, grundvaerdiBeloeb: 122100 },
+      { id: 386202818985623, aar: 2020, ejendomvaerdiBeloeb: 720000, grundvaerdiBeloeb: 340100 },
+      { id: 600000000444014, aar: 2020, ejendomvaerdiBeloeb: 751000, grundvaerdiBeloeb: 292000 },
+      { id: 600000000857918, aar: 2022, ejendomvaerdiBeloeb: 1065000, grundvaerdiBeloeb: 424000 },
+    ]);
+    expect(valuation.history.map((item) => `${item.year}:${item.system}`)).toEqual(["2022:new", "2020:new", "2020:old", "2001:old"]);
+    expect(valuation.latestOld?.propertyValue).toBe(720000);
+  });
+});
+
 describe("Plandata", () => {
   it("parses dates and structured building rights from a real framework", () => {
     expect(planDate(20250521)).toBe("2025-05-21");
@@ -156,7 +170,10 @@ describe("Plandata", () => {
     const result = await getPlansAt(521752.91, 6251216.77, { lookupPoint: "building" });
     expect(result.status).toBe("ok");
     if (result.status !== "ok") return;
-    expect(result.data.items.map((item) => item.type)).toEqual(["municipal_framework"]);
+    // No zone polygon covers the point, so it is landzone.
+    expect(result.data.items.map((item) => item.type)).toEqual(["municipal_framework", "zone"]);
+    expect(result.data.items[1]).toMatchObject({ zoneStatus: "Landzone" });
+    expect(buildFlags({ plans: result.data }).map((flag) => flag.id)).toContain("rural_zone");
     expect(result.data.nearby).toEqual([expect.objectContaining({ planId: "9639958", withinM: 40 })]);
     expect(result.data.lookupPoint).toBe("building");
   });

@@ -395,7 +395,11 @@ export function buildFlags(input: FlagInput): Flag[] {
       id: "no_local_plan",
       severity: "info",
       title: "Ingen lokalplan dækker grunden",
-      detail: `Byggeretten følger kommuneplanrammen og bygningsreglementet.${nearby.length ? ` Nærliggende lokalplan(er) inden for ${nearby[0]?.withinM ?? 40} m: ${nearby.map((item) => item.name).join("; ")}.` : ""}`,
+      detail: `${
+        items.some((item) => item.type === "municipal_framework")
+          ? "Byggeretten følger kommuneplanrammen og bygningsreglementet."
+          : "Heller ingen kommuneplanramme dækker grunden, så byggeretten følger bygningsreglementet og, i landzone, landzonereglerne."
+      }${nearby.length ? ` Nærliggende lokalplan(er) inden for ${nearby[0]?.withinM ?? 40} m: ${nearby.map((item) => item.name).join("; ")}.` : ""}`,
       sources: ["plandata"],
     });
   }

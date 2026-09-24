@@ -453,16 +453,15 @@ export async function getBuildingsAndUnits(
   }
 }
 
-// VUR ids from the new valuation system (2020 onward) start at 3e14; the old system used 965... ids.
-const NEW_SYSTEM_ID_MIN = 300_000_000_000_000;
-const NEW_SYSTEM_ID_MAX = 900_000_000_000_000;
+// VUR ids from the new valuation system (2020 onward) are one digit followed by zeros and a running number
+// (300000000888869, 600000000444014). Old-system ids carry a varying prefix (965…, 386…, 403…).
+const isNewSystemId = (id: number | null) => id !== null && /^[1-9]0{6}/.test(String(id));
 
 export function mapValuationRows(bfe: string, rows: Array<Record<string, unknown>>): Valuation {
   const byKey = new Map<string, ValuationEntry>();
   for (const item of rows) {
     const id = num(item.id);
-    const system: ValuationEntry["system"] =
-      id !== null && id >= NEW_SYSTEM_ID_MIN && id < NEW_SYSTEM_ID_MAX ? "new" : "old";
+    const system: ValuationEntry["system"] = isNewSystemId(id) ? "new" : "old";
     const entry: ValuationEntry = {
       year: num(item.aar) ?? undefined,
       propertyValue: num(item.ejendomvaerdiBeloeb),

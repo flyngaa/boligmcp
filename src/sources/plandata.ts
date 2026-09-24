@@ -185,6 +185,17 @@ export async function getPlansAt(
         return { covering, nearby };
       }),
     );
+    // The zone map only has polygons for byzone and sommerhusområde; everything outside them is landzone.
+    const zoneGroup = groups[PLAN_LAYERS.findIndex((layer) => layer.type === "zone")];
+    if (zoneGroup && zoneGroup.covering.length === 0) {
+      zoneGroup.covering.push({
+        name: "Landzone",
+        type: "zone",
+        status: "current",
+        zoneStatus: "Landzone",
+        notes: "Udledt: hverken by- eller sommerhuszone dækker punktet i Plandatas zonekort.",
+      });
+    }
     return ok("plandata", {
       items: groups.flatMap((group) => group.covering),
       nearby: groups.flatMap((group) => group.nearby),

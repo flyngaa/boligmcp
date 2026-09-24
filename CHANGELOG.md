@@ -7,6 +7,9 @@
 - A slow Statistikbanken no longer holds up `property_report`: 8 s per request with one retry, and area, parish and market statistics are left out after 15 s. One report took 194 s before this change.
 - `planned_sewer_change` is info, not medium, when BBR already has the planned drainage type (the wastewater plan lags behind). Otherwise it says so when the deadline year has passed.
 - `private_water` explains a private waterworks (BBR code 2) separately from an own well or borehole.
+- Landzone is inferred when no zone polygon covers the point: Plandata's zone map only has byzone and sommerhusområde, so `rural_zone` never fired before.
+- `no_local_plan` no longer says a municipal framework applies when there is none.
+- VUR tells the new valuation system apart by its id pattern (one digit, then zeros). Old-system ids starting with 386 or 403 were counted as new.
 
 ## 0.2.0 — 2026-09-24
 
