@@ -1,0 +1,52 @@
+[
+  {
+    "id": "rural",
+    "query": "Højagervej 12, 4330 Hvalsø",
+    "kind": "rural / land"
+  },
+  {
+    "id": "villa_cph",
+    "query": "Gammel Kongevej 1, 1610 København V",
+    "kind": "city villa / mixed street"
+  },
+  {
+    "id": "apartment",
+    "query": "Nørrebrogade 52, 4. tv, 2200 København N",
+    "kind": "apartment"
+  },
+  {
+    "id": "terrace",
+    "query": "Tjørnevej 7, 2800 Kongens Lyngby",
+    "kind": "terraced / rækkehus"
+  },
+  {
+    "id": "condo",
+    "query": " indiakaj 1, 1. th, 2100 København Ø",
+    "kind": "ejerlejlighed"
+  },
+  {
+    "id": "summerhouse",
+    "query": "Strandvejen 48, 8400 Ebeltoft",
+    "kind": "summer house area"
+  },
+  {
+    "id": "aarhus",
+    "query": "Rådhuspladsen 2, 8000 Aarhus C",
+    "kind": "city hall / urban"
+  },
+  {
+    "id": "odense",
+    "query": "Vestergade 17, 5000 Odense C",
+    "kind": "urban shop/housing"
+  },
+  {
+    "id": "aalborg",
+    "query": "Boulevarden 13, 9000 Aalborg",
+    "kind": "urban"
+  },
+  {
+    "id": "bornholm",
+    "query": "Storegade 1, 3700 Rønne",
+    "kind": "island / rural town"
+  }
+]

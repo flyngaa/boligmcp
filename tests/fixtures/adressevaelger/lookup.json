@@ -1,0 +1,18 @@
+{
+  "status": "ok",
+  "adresse": {
+    "id_lokalid": "0a3f50b8-aaaa-bbbb-cccc-000000000001",
+    "adressebetegnelse": "Nørrebrogade 52, 4. tv, 2200 København N",
+    "vejnavn": "Nørrebrogade",
+    "husnummertekst": "52",
+    "etagebetegnelse": "4",
+    "doerbetegnelse": "tv"
+  },
+  "husnummer": {
+    "id_lokalid": "0a3f5096-aaaa-bbbb-cccc-000000000002",
+    "adgangsadressebetegnelse": "Nørrebrogade 52, 2200 København N"
+  },
+  "adgangspunkt": { "x": 724000.12, "y": 6178000.45 },
+  "postnummer": { "postnr": "2200", "navn": "København N" },
+  "kommune": { "kommunekode": "101" }
+}

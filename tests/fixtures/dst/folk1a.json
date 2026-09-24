@@ -1,0 +1,13 @@
+{
+  "dataset": {
+    "label": "Population",
+    "dimension": {
+      "OMRÅDE": {
+        "category": {
+          "label": { "101": "Copenhagen" }
+        }
+      }
+    },
+    "value": [661000]
+  }
+}

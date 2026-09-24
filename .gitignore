@@ -1,0 +1,9 @@
+node_modules/
+dist/
+cache.db
+cache.db-journal
+.env
+*.log
+.DS_Store
+.turbo
+coverage/

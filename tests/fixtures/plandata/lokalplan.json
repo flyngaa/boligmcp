@@ -1,0 +1,17 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "planid": 123456,
+        "plannavn": "Lokalplan 101 Inner city",
+        "status": "V",
+        "anvendelsegenerel": "Bolig",
+        "zonestatus": "Byzone",
+        "doklink": "https://dokument.plandata.dk/20_123456_123.pdf",
+        "kommunenavn": "København"
+      }
+    }
+  ]
+}

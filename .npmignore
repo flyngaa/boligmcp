@@ -1,0 +1,11 @@
+src
+tests
+scripts
+docs
+cache.db
+.env
+.github
+tsconfig.json
+vitest.config.ts
+tsup.config.ts
+*.map
