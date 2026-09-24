@@ -43,9 +43,14 @@ describe("JSON-stat cells", () => {
 });
 
 describe("nearby services", () => {
-  it("takes the nearest per category and skips historic buildings", () => {
+  it("takes the nearest per category and skips ended buildings", () => {
     const at = (x: number, code: string, status = "6") => ({ status, byg021BygningensAnvendelse: code, byg404Koordinat: { wkt: `POINT (${x} 0)` } });
-    const result = summarizeNearby(0, 0, [at(700, "421"), at(240, "421"), at(90, "441", "10"), at(1500, "441"), at(2600, "322")], false);
+    const result = summarizeNearby(
+      0,
+      0,
+      [at(700, "421"), at(240, "421"), at(90, "441", "10"), at(120, "441", "9"), at(1500, "441"), at(2600, "322")],
+      false,
+    );
     const byCategory = Object.fromEntries(result.items.map((item) => [item.category, item]));
     expect(byCategory.school).toMatchObject({ nearestM: 240, within1km: 2 });
     expect(byCategory.daycare).toMatchObject({ nearestM: 1500, within1km: 0 });

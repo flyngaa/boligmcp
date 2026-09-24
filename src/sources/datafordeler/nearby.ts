@@ -1,4 +1,5 @@
 import { getConfig } from "../../config.js";
+import { isCurrentBbrRow } from "../../lib/bbr-codes.js";
 import { ok, unavailable, type NearbyService, type NearbyServices, type SourceResult } from "../../types.js";
 import { datafordelerUnavailable, queryNodes } from "./client.js";
 
@@ -26,7 +27,7 @@ function point(value: unknown): { x: number; y: number } | undefined {
 export function summarizeNearby(x: number, y: number, rows: Array<Record<string, unknown>>, truncated: boolean): NearbyServices {
   const items = CATEGORIES.map(({ category, label, codes }) => {
     const distances = rows
-      .filter((row) => codes.includes(String(row.byg021BygningensAnvendelse)) && !["10", "11"].includes(String(row.status)))
+      .filter((row) => codes.includes(String(row.byg021BygningensAnvendelse)) && isCurrentBbrRow(row))
       .map((row) => point(row.byg404Koordinat))
       .filter((p): p is { x: number; y: number } => Boolean(p))
       .map((p) => Math.hypot(p.x - x, p.y - y))

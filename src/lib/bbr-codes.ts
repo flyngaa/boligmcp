@@ -43,3 +43,11 @@ export const ASBESTOS_MATERIAL_CODES = new Set(["3"]);
 export function isOutbuilding(usageCode?: string): boolean {
   return Boolean(usageCode && /^9\d\d$/.test(usageCode));
 }
+
+// BBR code list "Livscyklus": 9 afsluttet (e.g. demolished), 10 historisk, 11 fejlregistreret, 14 henlagt.
+const ENDED_LIFECYCLES = new Set(["9", "10", "11", "14"]);
+
+/** False for BBR rows whose lifecycle says the building or unit no longer exists or never did. */
+export function isCurrentBbrRow(row: { status?: unknown }): boolean {
+  return !ENDED_LIFECYCLES.has(String(row.status ?? ""));
+}
