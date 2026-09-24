@@ -1,5 +1,49 @@
 # Changelog
 
+## 0.2.0 — 2026-09-24
+
+Built for investors screening many properties.
+
+### New
+- `screen_properties`: up to 25 addresses in one call, one comparable row each (size, plot, heating, zone, new valuation, valuation per m², building rights headroom, high/medium flags).
+- `get_site_conditions`: 16 Plandata layers at the property — heat supply and heat plan areas, connection obligation, sewer catchment, wastewater plan, flood/erosion risk, near-surface groundwater, low-lying land, noise, large livestock farms, planned roads and technical facilities nearby, transformation areas and cultural heritage.
+- Investor flags in `property_report` (asbestos, oil/gas/electric heating, attic and basement areas, listed or worth-preserving buildings, flood compensation, existing tenancy, private water or drainage, soil contamination on the property vs nearby, rural zone, plan proposals, building rights headroom, valuation age).
+- BBR: outbuildings on the same ground, floors with used attic and basement areas, asbestos, listing, flood compensation, revision date, building coordinate; units with tenure, housing type, residential/commercial area and toilet/bath counts; ground water supply and drainage.
+- Plans: local plan subareas, plan proposals, framework building rights (max plot ratio, floors, height per specific usage) and framework notes.
+- Area statistics: 5-year population change, disposable income, rented and vacant share, unemployment, net migration.
+- `scripts/update-bbr-codes.ts` regenerates the BBR code lists from teknik.bbr.dk; `scripts/probe-fields.ts` checks Datafordeleren field names one by one (introspection is disabled).
+
+### Credentials: bring your own
+- `boligmcp setup` asks for each user's own keys in the terminal (hidden input), checks the Datafordeleren key and saves them to `~/.config/boligmcp/credentials.json` with mode 600. `setup --show` prints them masked.
+- `manifest.json` (MCP bundle 0.3) with sensitive `user_config` fields, so Claude Desktop asks for keys at install.
+- Server instructions tell the model to point users to setup and never ask for keys in chat. Missing-credential results say how to get access.
+- `list_sources` shows where each credential came from (env or credentials file) and setup steps for missing ones; never values. EJF is no longer shown as configured just because an API key exists.
+- `.env` is no longer read from the working directory; only when `BOLIGMCP_ENV_FILE` is set. The cache moved from `./cache.db` to `~/.cache/boligmcp/cache.db`.
+
+### Sale prices (EJF)
+- OAuth client-credentials support (`DATAFORDELER_OAUTH_CLIENT_ID` / `DATAFORDELER_OAUTH_CLIENT_SECRET`, asked for by `setup` and the bundle). Tokens are reused until shortly before expiry.
+- `get_trades` rewritten to use only `EJF_Ejerskifte` and `EJF_Handelsoplysninger`, the entities private actors can be approved for: takeover and agreement dates, total and cash price, movables, contractor sum, transfer type, with CC BY attribution. It never queries owners, persons or deed text. `EJF_Ejerskab` (public authorities only) is no longer used.
+- Field names were confirmed against the live schema: Datafordeleren validates fields before checking access.
+- `screen_properties` and flags show the last sale when EJF access is configured.
+
+### More data without new applications
+All use the existing Datafordeleren API key or need no key.
+- Terrain (`get_terrain`): Danmarks Højdemodel via Datafordeleren WCS. Terrain height in DVR90, highest surface near the building, and position relative to the terrain within 250 m. Flags for low terrain (storm surge screening) and hollows (cloudburst). A small float32 GeoTIFF reader avoids a dependency.
+- Building outlines: GeoDanmark photogrammetric outlines matched to BBR by `BBRUUID`. Flags buildings much larger on the map than in BBR (beyond roof overhang), a hint of unregistered extensions.
+- Nearby services (`get_nearby_services`): straight-line distance to school, daycare, shop, doctor and sports hall from BBR's spatial search. Stations are left out because BBR does not register most of them.
+- Local statistics (`get_local_statistics`): parish population and 5-year change, average age, net migration, employment and education (SOGN1, KMGALDER, KMSTA003, KMSTA005, KMST007A), and the regional price index and average sale price for the property type (EJ56, EJEN77) via `DAGI_Landsdel`.
+- Watchlist (`watch_property`, `check_watchlist`, `list_watchlist`, `unwatch_property`): snapshots in `~/.config/boligmcp/watchlist.json`; checks report new valuations, sales, plans, proposals, BBR changes and flags in Danish.
+
+### Fixed
+- Datafordeleren cache key ignored the requested fields, so two queries on the same entity with different fields shared one cached answer.
+- VUR history stopped at 8 entries from the oldest end (2001–2007). It now returns the full history and keeps the new (2020+) and old systems apart; zero valuations are never reported as latest.
+- Plans were matched with a 40 m box and reported neighbouring local plans as covering the property. Plans and overlays now use a point-in-polygon lookup at the main building's coordinate; nearby local plans are listed separately.
+- Soil contamination within 80 m was reported as on the property. Localities are now marked `onProperty` only when the point is inside or the locality lists the property's parcel.
+- Heating fuel was read from the supplementary-heating field (`byg058`); it now comes from `byg057Opvarmningsmiddel`.
+- BBR code tables had wrong labels for roof, wall, heating and ownership codes. All labels now come from the official Danish lists.
+- Danmarks Statistik returned nothing: four-digit municipality codes ("0791") and missing required variables for INDKP101 and BOL101.
+- Historic and erroneous BBR buildings (lifecycle 10/11) are dropped.
+
 ## 0.1.0 — 2026-09-24
 
 - Initial public MCP server for Danish property data.
