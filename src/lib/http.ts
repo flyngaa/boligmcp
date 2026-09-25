@@ -20,6 +20,12 @@ export interface FetchJsonOptions {
   accept?: string;
 }
 
+/** Error text never carries the query string: it can hold tokens and API keys, and user input of any length. */
+export function safeUrl(url: string): string {
+  const cut = url.indexOf("?");
+  return cut === -1 ? url : url.slice(0, cut);
+}
+
 const DEFAULT_UA = `boligmcp/${VERSION} (https://github.com/flyngaa/boligmcp)`;
 
 function sleep(ms: number): Promise<void> {
@@ -57,12 +63,8 @@ export async function fetchText(
       });
       const text = await response.text();
       if (!response.ok) {
-        const safeUrl = url.replace(/apiKey=[^&]+/gi, "apiKey=REDACTED");
-        throw new HttpError(
-          `HTTP ${response.status} from ${safeUrl}: ${text.slice(0, 400)}`,
-          response.status,
-          safeUrl,
-        );
+        const shown = safeUrl(url);
+        throw new HttpError(`HTTP ${response.status} from ${shown}: ${text.slice(0, 300)}`, response.status, shown);
       }
       return text;
     } catch (error) {
@@ -87,6 +89,6 @@ export async function fetchJson<T>(
   try {
     return JSON.parse(text) as T;
   } catch {
-    throw new HttpError(`Invalid JSON from ${url}: ${text.slice(0, 200)}`, undefined, url);
+    throw new HttpError(`Invalid JSON from ${safeUrl(url)}: ${text.slice(0, 200)}`, undefined, safeUrl(url));
   }
 }

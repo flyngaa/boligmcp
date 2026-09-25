@@ -103,12 +103,17 @@ export const PropertyIdsSchema = z.object({
   accessAddressId: z.string().optional(),
   houseNumberId: z.string().optional(),
   designation: z.string().optional(),
+  /** The address's own property: the condominium's BFE for a flat that is an ejerlejlighed. */
   bfe: z.string().optional(),
+  /** The main property (samlet fast ejendom) holding the land, when `bfe` is a condominium within it. */
   mainBfe: z.string().optional(),
+  /** The main property is divided into condominiums. */
   isCondominium: z.boolean().optional(),
   cadastralDistrictCode: z.string().optional(),
   cadastralNumber: z.string().optional(),
   coordinate: CoordinateSchema.optional(),
+  /** Set when the address found is not exactly what was asked for (another floor, door, number or town). */
+  matchWarning: z.string().optional(),
 });
 export type PropertyIds = z.infer<typeof PropertyIdsSchema>;
 
@@ -126,6 +131,8 @@ export type Floor = z.infer<typeof FloorSchema>;
 export const BuildingSchema = z.object({
   buildingId: z.string().optional(),
   bfe: z.string().optional(),
+  /** DAR house number the building is registered at. */
+  houseNumberId: z.string().optional(),
   usageCode: z.string().optional(),
   usage: z.string().optional(),
   constructionYear: z.number().nullable().optional(),
@@ -215,6 +222,8 @@ export const ValuationEntrySchema = z.object({
   valuedArea: z.number().nullable().optional(),
   category: z.string().optional(),
   changedOn: z.string().optional(),
+  /** Number of separate valuations for the same year that were added together (the property is valued in parts). */
+  parts: z.number().int().optional(),
 });
 export type ValuationEntry = z.infer<typeof ValuationEntrySchema>;
 
@@ -223,6 +232,8 @@ export const ValuationSchema = z.object({
   latest: ValuationEntrySchema.optional(),
   latestNew: ValuationEntrySchema.optional(),
   latestOld: ValuationEntrySchema.optional(),
+  /** Explains a newer valuation of 0 kr. that `latest` skips. */
+  note: z.string().optional(),
   history: z.array(ValuationEntrySchema).default([]),
 });
 export type Valuation = z.infer<typeof ValuationSchema>;
@@ -268,6 +279,8 @@ export const HeritageBuildingSchema = z.object({
   saveValue: z.number().int().optional(),
   listed: z.boolean().optional(),
   listingStatus: z.number().int().optional(),
+  /** true when the FBB address is the property's own, false when it is a neighbour within the lookup box. */
+  atProperty: z.boolean().optional(),
 });
 export type HeritageBuilding = z.infer<typeof HeritageBuildingSchema>;
 
@@ -461,6 +474,10 @@ export const AreaStatSchema = z.object({
 export type AreaStat = z.infer<typeof AreaStatSchema>;
 
 export const AreaStatsSchema = z.object({
+  /** Which area the numbers describe. */
+  level: z.enum(["municipality", "parish", "landsdel"]).optional(),
+  areaCode: z.string().optional(),
+  areaName: z.string().optional(),
   municipalityCode: z.string().optional(),
   municipalityName: z.string().optional(),
   stats: z.array(AreaStatSchema),

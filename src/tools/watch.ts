@@ -1,8 +1,8 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { buildFlags, flagInputFrom } from "../analysis/flags.js";
-import { collectPropertyData, type PropertyData } from "./property-report.js";
+import { collectPropertyData, lastSale, type PropertyData } from "./property-report.js";
 
 export const WATCH_MAX = 50;
 
@@ -34,27 +34,44 @@ function watchlistPath(): string {
   return join(base, "boligmcp", "watchlist.json");
 }
 
+export class WatchlistUnreadableError extends Error {}
+
+/** A file that exists but cannot be read is an error, never an empty list: the next write would erase it. */
 export function readWatchlist(): WatchEntry[] {
   const path = watchlistPath();
   if (!existsSync(path)) return [];
+  let parsed: { entries?: unknown };
   try {
-    const parsed = JSON.parse(readFileSync(path, "utf8")) as { entries?: WatchEntry[] };
-    return Array.isArray(parsed.entries) ? parsed.entries : [];
-  } catch {
-    return [];
+    parsed = JSON.parse(readFileSync(path, "utf8")) as { entries?: unknown };
+  } catch (error) {
+    throw new WatchlistUnreadableError(
+      `The watchlist at ${path} is not valid JSON (${error instanceof Error ? error.message : String(error)}). It was left untouched; fix or remove the file.`,
+    );
   }
+  if (!Array.isArray(parsed.entries)) {
+    throw new WatchlistUnreadableError(`The watchlist at ${path} has no "entries" list. It was left untouched; fix or remove the file.`);
+  }
+  return parsed.entries as WatchEntry[];
 }
 
+/** Writes via a temporary file, so a crash mid-write cannot leave half a watchlist. */
 function writeWatchlist(entries: WatchEntry[]): void {
   const path = watchlistPath();
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, `${JSON.stringify({ entries }, null, 2)}\n`);
+  const temp = `${path}.${process.pid}.tmp`;
+  writeFileSync(temp, `${JSON.stringify({ entries }, null, 2)}\n`);
+  renameSync(temp, path);
+}
+
+function unreadable(error: unknown): { error: string } {
+  if (error instanceof WatchlistUnreadableError) return { error: error.message };
+  throw error;
 }
 
 export function snapshotOf(data: PropertyData): WatchSnapshot {
   const bbr = data.buildings?.status === "ok" ? data.buildings.data : undefined;
   const valuation = data.valuation?.status === "ok" ? (data.valuation.data.latestNew ?? data.valuation.data.latest) : undefined;
-  const sale = data.trades?.status === "ok" ? data.trades.data[0] : undefined;
+  const sale = lastSale(data.trades?.status === "ok" ? data.trades.data : undefined);
   const plans = data.plans?.status === "ok" ? data.plans.data.items : [];
   const planKey = (item: { type: string; planId?: string; name?: string }) => `${item.type}:${item.planId ?? item.name ?? "?"}`;
   return {
@@ -68,8 +85,8 @@ export function snapshotOf(data: PropertyData): WatchSnapshot {
     buildings: (bbr?.buildings ?? [])
       .map((b) => ({ id: b.buildingId ?? "?", usage: b.usage, builtArea: b.builtArea, lastRevised: b.lastRevised }))
       .sort((a, b) => a.id.localeCompare(b.id)),
-    dwellingArea: bbr?.units[0]?.dwellingArea ?? null,
-    tenure: bbr?.units[0]?.tenure,
+    dwellingArea: bbr?.units.length === 1 ? (bbr.units[0]?.dwellingArea ?? null) : null,
+    tenure: bbr?.units.length === 1 ? bbr.units[0]?.tenure : undefined,
     flags: buildFlags(flagInputFrom(data))
       .filter((flag) => flag.severity !== "info")
       .map((flag) => `${flag.severity}: ${flag.title}`)
@@ -123,26 +140,54 @@ async function collect(query: string) {
 }
 
 export async function watchProperty(query: string, note?: string) {
-  const entries = readWatchlist();
+  let entries: WatchEntry[];
+  try {
+    entries = readWatchlist();
+  } catch (error) {
+    return unreadable(error);
+  }
   const data = await collect(query);
   if (data.idsResult.status !== "ok") return { error: data.idsResult.detail ?? "Address not found" };
-  const id = data.ids?.bfe ?? data.ids?.addressId ?? query;
+  const id = data.ids?.bfe ?? data.ids?.addressId ?? data.ids?.houseNumberId ?? query;
   const existing = entries.find((entry) => entry.id === id);
-  if (!existing && entries.length >= WATCH_MAX) return { error: `The watchlist is full (${WATCH_MAX}). Remove one with unwatch_property.` };
+  if (existing) {
+    // Watching again must not move the baseline, or changes since then would never be reported.
+    const updated = { ...existing, note: note ?? existing.note };
+    if (note !== undefined) writeWatchlist(entries.map((item) => (item.id === id ? updated : item)));
+    return {
+      watching: existing.designation ?? query,
+      id,
+      alreadyWatched: true,
+      note: "Already on the watchlist; the baseline from the last check was kept. Call check_watchlist to see changes.",
+      snapshot: existing.snapshot,
+    };
+  }
+  if (entries.length >= WATCH_MAX) return { error: `The watchlist is full (${WATCH_MAX}). Remove one with unwatch_property.` };
   const entry: WatchEntry = {
     id,
     designation: data.ids?.designation,
     query,
-    note: note ?? existing?.note,
-    addedAt: existing?.addedAt ?? new Date().toISOString(),
+    note,
+    addedAt: new Date().toISOString(),
     snapshot: snapshotOf(data),
   };
-  writeWatchlist([...entries.filter((item) => item.id !== id), entry]);
-  return { watching: entry.designation ?? query, id, alreadyWatched: Boolean(existing), snapshot: entry.snapshot };
+  writeWatchlist([...entries, entry]);
+  return {
+    watching: entry.designation ?? query,
+    id,
+    alreadyWatched: false,
+    ...(data.ids?.matchWarning ? { matchWarning: data.ids.matchWarning } : {}),
+    snapshot: entry.snapshot,
+  };
 }
 
 export function unwatchProperty(idOrQuery: string) {
-  const entries = readWatchlist();
+  let entries: WatchEntry[];
+  try {
+    entries = readWatchlist();
+  } catch (error) {
+    return unreadable(error);
+  }
   const needle = idOrQuery.trim().toLowerCase();
   const keep = entries.filter(
     (entry) => entry.id !== idOrQuery && entry.query.toLowerCase() !== needle && entry.designation?.toLowerCase() !== needle,
@@ -152,7 +197,13 @@ export function unwatchProperty(idOrQuery: string) {
 }
 
 export function listWatchlist() {
-  return readWatchlist().map((entry) => ({
+  let entries: WatchEntry[];
+  try {
+    entries = readWatchlist();
+  } catch (error) {
+    return unreadable(error);
+  }
+  return entries.map((entry) => ({
     id: entry.id,
     designation: entry.designation,
     note: entry.note,
@@ -164,7 +215,12 @@ export function listWatchlist() {
 /** Re-fetches every watched property and reports what changed since the last check. */
 export async function checkWatchlist(options: { update?: boolean } = {}) {
   const update = options.update ?? true;
-  const entries = readWatchlist();
+  let entries: WatchEntry[];
+  try {
+    entries = readWatchlist();
+  } catch (error) {
+    return unreadable(error);
+  }
   const results = [];
   const next: WatchEntry[] = [];
   for (const entry of entries) {

@@ -33,6 +33,7 @@ export async function screenProperties(addresses: string[]) {
       const summary = summarize(data);
       const flags = buildFlags(flagInputFrom(data));
       const valuation = data.valuation?.status === "ok" ? data.valuation.data.latestNew : undefined;
+      const oldValuation = data.valuation?.status === "ok" && !valuation ? data.valuation.data.latestOld : undefined;
       const perM2 =
         valuation?.propertyValue && summary.dwellingArea
           ? Math.round(valuation.propertyValue / summary.dwellingArea)
@@ -41,7 +42,9 @@ export async function screenProperties(addresses: string[]) {
       return {
         query,
         designation: summary.designation,
+        ...(summary.matchWarning ? { matchWarning: summary.matchWarning } : {}),
         bfe: summary.bfe,
+        ...(summary.mainBfe ? { mainBfe: summary.mainBfe } : {}),
         usage: summary.usage,
         constructionYear: summary.constructionYear,
         dwellingArea: summary.dwellingArea,
@@ -54,6 +57,9 @@ export async function screenProperties(addresses: string[]) {
         lastSale: summary.lastTrade ? { price: summary.lastTrade, date: summary.lastTradeDate } : undefined,
         newValuation: valuation
           ? { year: valuation.year, propertyValue: valuation.propertyValue, landValue: valuation.landValue }
+          : undefined,
+        oldValuation: oldValuation
+          ? { year: oldValuation.year, propertyValue: oldValuation.propertyValue, landValue: oldValuation.landValue }
           : undefined,
         valuationPerDwellingM2: perM2,
         buildingRights: rights?.title,
@@ -68,10 +74,22 @@ export async function screenProperties(addresses: string[]) {
       return { query, error: error instanceof Error ? error.message : String(error) };
     }
   });
+  // Two addresses can be one property (a corner house, a farm with two entrances).
+  const firstQueryFor = new Map<string, string>();
+  const marked = rows.map((row) => {
+    const bfe = "bfe" in row ? row.bfe : undefined;
+    if (!bfe) return row;
+    const first = firstQueryFor.get(bfe);
+    if (!first) {
+      firstQueryFor.set(bfe, row.query);
+      return row;
+    }
+    return { ...row, sameProperty: `Samme ejendom (BFE ${bfe}) som "${first}"` };
+  });
   return {
     screened: rows.length,
     skipped: Math.max(0, addresses.length - unique.length),
-    rows,
+    rows: marked,
     note: "Flags are signals for further checks, not advice. Area statistics and energy labels are left out; call property_report for one address.",
   };
 }

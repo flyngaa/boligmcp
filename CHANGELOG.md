@@ -8,6 +8,28 @@
 - `get_energy_label` calls Energistyrelsen's `SearchEnergyLabelBFE` endpoint. It still needs the user's own EMOData agreement.
 
 ### Fixes
+- Address lookups take the best search match. The resolver skipped house-number hits, so "Strandvejen 100 Hellerup" and "Rådhuspladsen 1" landed in Frederiksværk and "Nyhavn 18" in its basement flat.
+- A town given without a postcode ("Boulevarden 1 Aalborg") now ranks first, and ASCII or English spellings ("Noerrebrogade", "Koebenhavn", "Copenhagen", "HC Andersens Blvd") are tried when nothing matches. Emoji and symbols are stripped; queries are capped at 200 characters.
+- `matchWarning` says when the address found is not the one asked for: a floor or door that does not exist, another number, or the same address in other towns when no postcode was given. It used to swap in another flat silently.
+- Search hits carry floor, door, house number and postcode, read from the title.
+- Every address tool takes `query` or `addressId`, and `addressId` also accepts a house-number id (the only id many search hits have). Ids are trimmed and lower-cased; a bad id falls back to `query` when both are given. BFE inputs must be whole numbers.
+- A flat that is a condominium gets its own BFE (from EBR), with the land-holding property as `mainBfe`. Valuation, sales and reports described the whole building before. `get_parcel` follows a condominium BFE to its property's parcels.
+- `get_buildings` uses `bfe` (it was ignored) and finds a flat's building through its units, and a property's buildings on its parcels when nothing is registered at the address. Nyhavn 18A and Søndervig summer-house plots had no buildings.
+- The main building is a dwelling before other uses, then the building at the address, then the largest. A 1743 barn was Egeskov's main building.
+- Building rights headroom is only estimated when BBR has floor areas. Store Torv 1, Rønne showed 730 m² headroom with no area data.
+- Parcels with pending changes ("Ikke gennemført") no longer count, which doubled some plot areas.
+- The last sale is the latest sale with a price, in the summary, screen and watchlist alike; unpriced transfers were shown as sales. EJF's 1969-12-31 placeholder date is dropped.
+- A property valued in parts in one year is added up (`parts`): Egeskov showed 120,700 kr. instead of 73,120,700 kr. A newer 0 kr. valuation is explained in `note` instead of silently skipped.
+- Heritage marks `atProperty` and flags only the property's own buildings; neighbours on Nyhavn were flagged as listed. The lookup covers all of a property's buildings.
+- Double-encoded plan texts from Plandata are repaired ("OmrÃ¥de" → "Område").
+- Statistics say their level (`municipality`, `parish`, `landsdel`); parish figures were labelled as a municipality.
+- A report for an address that is not found has an empty summary and no false "missing DATAFORDELER_API_KEY" hint.
+- The report trims large estates to 8 buildings and 5 units with totals, and tool output is compact JSON (about a third fewer tokens).
+- `screen_properties` marks rows that are the same property, shows the old-system valuation when there is no new one, and carries `matchWarning`.
+- The watchlist is never overwritten when the file cannot be read, is written atomically, and watching a property again keeps its baseline.
+- Error messages no longer include request query strings. The Adressevælgeren token could appear in an error.
+- GraphQL filters are serialised field by field with escaped strings; a value containing `":` broke the query.
+
 - BBR units with lifecycle status historic (10) or misregistered (11) are dropped, as buildings already were. A misregistered unit could add a phantom dwelling to the address.
 - A slow Statistikbanken no longer holds up `property_report`: 8 s per request with one retry, and area, parish and market statistics are left out after 15 s. One report took 194 s before this change.
 - `planned_sewer_change` is info, not medium, when BBR already has the planned drainage type (the wastewater plan lags behind). Otherwise it says so when the deadline year has passed.

@@ -166,7 +166,7 @@ export async function getAreaStatsForMunicipality(
         .map((item) => String(item.reason).slice(0, 160));
       return unavailable("dst", "upstream_error", `No Statbank tables returned data. ${reasons.join(" | ")}`);
     }
-    return ok("dst", { municipalityCode: code, municipalityName, stats });
+    return ok("dst", { level: "municipality", areaCode: code, areaName: municipalityName, municipalityCode: code, municipalityName, stats });
   } catch (error) {
     return unavailable("dst", "upstream_error", error instanceof Error ? error.message : String(error));
   }
@@ -279,7 +279,7 @@ export async function getParishStats(parishCode: string, parishName?: string): P
       });
     }
     if (stats.length === 0) return unavailable("dst", "upstream_error", `No parish statistics for sogn ${code}`);
-    return ok("dst", { municipalityCode: code, municipalityName: parishName, stats });
+    return ok("dst", { level: "parish", areaCode: code, areaName: parishName, stats });
   } catch (error) {
     return unavailable("dst", "upstream_error", error instanceof Error ? error.message : String(error));
   }
@@ -350,7 +350,7 @@ export async function getRegionalMarket(landsdelName: string, category: MarketCa
       table: "EJEN77",
     });
     stats.push({ key: "sales_count", label: `Antal salg ${kind.label} (${salesPeriod})`, value: jsonStatCell(sales, { BNØGLE: "1" }), table: "EJEN77" });
-    return ok("dst", { municipalityCode: area.id, municipalityName: area.text, stats });
+    return ok("dst", { level: "landsdel", areaCode: area.id, areaName: area.text, stats });
   } catch (error) {
     return unavailable("dst", "upstream_error", error instanceof Error ? error.message : String(error));
   }

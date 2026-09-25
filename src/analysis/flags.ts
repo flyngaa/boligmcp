@@ -240,7 +240,8 @@ export function buildFlags(input: FlagInput): Flag[] {
     });
   }
 
-  const heritageItems = input.heritage?.items ?? [];
+  // Neighbours caught by the lookup box are not this property's buildings.
+  const heritageItems = (input.heritage?.items ?? []).filter((item) => item.atProperty !== false);
   const fbbListed = heritageItems.filter((item) => item.listed);
   if (fbbListed.length && !listed.length) {
     add({
@@ -369,7 +370,9 @@ export function buildFlags(input: FlagInput): Flag[] {
   // Soil contamination
   const soil = (input.environment?.items ?? []).filter((item) => item.category === "soil_v1" || item.category === "soil_v2");
   const soilLabel = (item: (typeof soil)[number]) =>
-    `${item.category === "soil_v2" ? "V2 (konstateret forurening)" : "V1 (mulig forurening)"}${item.name ? `: ${item.name}` : ""}`;
+    `${item.category === "soil_v2" ? "V2 (konstateret forurening)" : "V1 (mulig forurening)"}${item.name ? `: ${item.name}` : ""}${
+      item.localityNumber ? ` (lokalitet ${item.localityNumber}${item.address ? `, ${item.address}` : ""})` : ""
+    }`;
   const soilOn = soil.filter((item) => item.onProperty);
   const soilNear = soil.filter((item) => !item.onProperty);
   if (soilOn.length) {
@@ -484,8 +487,9 @@ export function buildFlags(input: FlagInput): Flag[] {
   const framework = items.find((item) => item.type === "municipal_framework");
   const plotArea = (input.parcels ?? []).reduce((sum, parcel) => sum + (parcel.registeredArea ?? 0), 0);
   const ratio = applicablePlotRatio(framework, main?.usageCode);
-  if (ratio && plotArea > 0 && buildings.length) {
-    const used = countedFloorArea(buildings);
+  const used = countedFloorArea(buildings);
+  // With no floor areas in BBR the whole plot would look unbuilt; say nothing rather than invent headroom.
+  if (ratio && plotArea > 0 && used > 0) {
     const allowed = (plotArea * ratio.pct) / 100;
     const current = Math.round((used / plotArea) * 1000) / 10;
     const headroom = allowed - used;
@@ -583,7 +587,7 @@ export function buildFlags(input: FlagInput): Flag[] {
       id: "valuation_old_only",
       severity: "medium",
       title: "Kun vurdering fra det gamle system",
-      detail: `Seneste vurdering er fra ${valuation.latestOld.year}. Den siger lidt om dagens markedspris.`,
+      detail: `Seneste vurdering er fra ${valuation.latestOld.year}. Den siger lidt om dagens markedspris.${valuation.note ? ` ${valuation.note}` : ""}`,
       sources: ["vur"],
     });
   }

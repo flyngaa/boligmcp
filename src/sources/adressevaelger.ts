@@ -23,6 +23,7 @@ interface SearchHit {
   adgangsadressebetegnelse?: string;
   vejnavn?: string;
   husnummertekst?: string;
+  husnummer?: string;
   etagebetegnelse?: string | null;
   doerbetegnelse?: string | null;
   postnr?: string;
@@ -99,9 +100,40 @@ function inferType(hit: SearchHit): AddressMatch["type"] {
   return "other";
 }
 
+/**
+ * Splits a designation such as "Istedgade 50, 1. th, 1650 København V" or "Egeskovvej 41, Hald Ege, 8800 Viborg".
+ * The search API returns only this text for most hits, so floor, door and postcode come from here.
+ */
+export function parseDesignation(text: string): {
+  street?: string;
+  houseNumber?: string;
+  floor?: string;
+  door?: string;
+  postalCode?: string;
+  postalName?: string;
+} {
+  const parts = text.split(",").map((part) => part.trim()).filter(Boolean);
+  const head = parts[0]?.match(/^(.*?)\s+(\d+\s*[A-Za-zÆØÅæøå]?)$/);
+  const tail = parts.length > 1 ? parts[parts.length - 1]!.match(/^(\d{4})\s+(.+)$/) : null;
+  const unit = parts.slice(1, tail ? -1 : undefined).find((part) => FLOOR_RE.test(part));
+  const unitMatch = unit?.match(FLOOR_RE);
+  return {
+    street: head?.[1] ?? parts[0],
+    houseNumber: head?.[2]?.replace(/\s+/g, "").toUpperCase(),
+    floor: unitMatch?.[1]?.replace(/\.$/, "").toLowerCase(),
+    door: unitMatch?.[2]?.replace(/\.$/, "").toLowerCase() || undefined,
+    postalCode: tail?.[1],
+    postalName: tail?.[2],
+  };
+}
+
+/** "st", "kl", "1.", "12. th", "st. mf", "2. 3" */
+const FLOOR_RE = /^(st\.?|kl\d?\.?|k\d\.?|\d{1,2}\.?)(?:\s+(\S+))?$/i;
+
 export function mapSearchHit(hit: SearchHit): AddressMatch {
   const id = hit.id_lokalid ?? hit.id;
   const type = inferType(hit);
+  const parsed = parseDesignation(hit.titel ?? hit.adressebetegnelse ?? hit.adgangsadressebetegnelse ?? "");
   return {
     addressId: type === "address" ? id : undefined,
     houseNumberId: hit.husnummerId ?? (type === "house_number" ? id : undefined),
@@ -111,12 +143,12 @@ export function mapSearchHit(hit: SearchHit): AddressMatch {
       hit.adressebetegnelse ??
       hit.adgangsadressebetegnelse ??
       [hit.vejnavn, hit.husnummertekst].filter(Boolean).join(" "),
-    streetName: hit.vejnavn,
-    houseNumber: hit.husnummertekst,
-    floor: hit.etagebetegnelse ?? null,
-    door: hit.doerbetegnelse ?? null,
-    postalCode: hit.postnr ?? hit.postnummer?.postnr,
-    postalName: hit.postnummernavn ?? hit.postnummer?.navn,
+    streetName: hit.vejnavn ?? parsed.street,
+    houseNumber: hit.husnummertekst ?? hit.husnummer ?? parsed.houseNumber,
+    floor: hit.etagebetegnelse ?? (type === "address" ? parsed.floor : undefined) ?? null,
+    door: hit.doerbetegnelse ?? (type === "address" ? parsed.door : undefined) ?? null,
+    postalCode: hit.postnr ?? hit.postnummer?.postnr ?? parsed.postalCode,
+    postalName: hit.postnummernavn ?? hit.postnummer?.navn ?? parsed.postalName,
     type,
   };
 }
@@ -178,20 +210,92 @@ function hitsFrom(response: SearchResponse): SearchHit[] {
   return response.fund ?? response.resultater ?? response.adresser ?? response.husnumre ?? [];
 }
 
+/** The search API rejects very long text; no Danish address comes close to this. */
+const MAX_QUERY_LENGTH = 200;
+/** Hits fetched before re-ranking, so a town named without its postcode can still win. */
+const CANDIDATES = 20;
+
+const CITY_ALIASES: Array<[RegExp, string]> = [
+  [/\bcopenhagen\b/gi, "København"],
+  [/\bkobenhavn\b/gi, "København"],
+  [/\bkbh\.?(?=\s|,|$)/gi, "København"],
+  [/\baarhus\b/gi, "Aarhus"],
+  [/\belsinore\b/gi, "Helsingør"],
+  [/\bblvd\.?(?=\s|,|$)/gi, "Boulevard"],
+  [/\bH\.?\s?C\.?\s+(?=[A-ZÆØÅ])/g, "H.C. "],
+];
+
+/** ASCII spellings of Danish letters: "Noerrebrogade" -> "Nørrebrogade", "Koebenhavn" -> "København". */
+export function danishSpelling(query: string): string {
+  let text = query;
+  for (const [pattern, replacement] of CITY_ALIASES) text = text.replace(pattern, replacement);
+  return text
+    .replace(/oe/g, "ø")
+    .replace(/Oe/g, "Ø")
+    .replace(/ae/g, "æ")
+    .replace(/Ae/g, "Æ")
+    .replace(/(?<!A)aa/g, "å")
+    .replace(/\bAa(?!rhus|lborg|benraa)/g, "Å");
+}
+
+/** Keeps letters, digits and the separators the search understands. Emoji and symbols only make it miss. */
+export function cleanQuery(query: string): string {
+  return query
+    .normalize("NFC")
+    .replace(/[^\p{L}\p{N}\s.,\-/']/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, MAX_QUERY_LENGTH);
+}
+
+const words = (text: string) =>
+  text
+    .toLowerCase()
+    .replace(/\baa/g, "å")
+    .split(/[\s,.]+/)
+    .filter((word) => word.length > 1 || /\d/.test(word));
+
+/**
+ * The search ranks by street and number first and can drop a town given without a postcode
+ * ("Boulevarden 1 Aalborg" ranks Nexø first). Hits that contain more of the query's words move up;
+ * the API's own order breaks ties.
+ */
+export function rerank(query: string, hits: AddressMatch[]): AddressMatch[] {
+  const wanted = new Set([...words(query), ...words(danishSpelling(query))]);
+  const score = (hit: AddressMatch) => [...new Set(words(hit.designation))].filter((word) => wanted.has(word)).length;
+  // Without a floor in the query, the building's own address beats a flat in it.
+  const wantedFloor = parseDesignation(query).floor;
+  const unitPenalty = (hit: AddressMatch) => (!wantedFloor && hit.floor ? 1 : 0);
+  return hits
+    .map((hit, index) => ({ hit, index, score: score(hit) }))
+    .sort((a, b) => b.score - a.score || unitPenalty(a.hit) - unitPenalty(b.hit) || a.index - b.index)
+    .map((item) => item.hit);
+}
+
+async function searchOnce(query: string): Promise<AddressMatch[]> {
+  const url = `${BASE}/adresser/soeg?tekst=${encodeURIComponent(query)}&maksimum=${CANDIDATES}&token=${encodeURIComponent(token())}`;
+  const data = await cached(`adv:search:${query}:${CANDIDATES}`, ttlFor("adressevaelger"), () =>
+    fetchJson<SearchResponse>(url),
+  );
+  return hitsFrom(data).map(mapSearchHit);
+}
+
 export async function searchAddresses(
   query: string,
   limit = 10,
 ): Promise<SourceResult<AddressMatch[]>> {
   try {
-    const url = `${BASE}/adresser/soeg?tekst=${encodeURIComponent(query)}&maksimum=${limit}&token=${encodeURIComponent(token())}`;
-    const data = await cached(`adv:search:${query}:${limit}`, ttlFor("adressevaelger"), () =>
-      fetchJson<SearchResponse>(url),
-    );
-    const hits = hitsFrom(data).slice(0, limit).map(mapSearchHit);
+    const cleaned = cleanQuery(query);
+    if (cleaned.length < 2) return unavailable("adressevaelger", "not_found", `No matches for "${query}"`);
+    let hits = await searchOnce(cleaned);
+    if (hits.length === 0) {
+      const respelled = danishSpelling(cleaned);
+      if (respelled !== cleaned) hits = await searchOnce(respelled);
+    }
     if (hits.length === 0) {
       return unavailable("adressevaelger", "not_found", `No matches for "${query}"`);
     }
-    return ok("adressevaelger", hits);
+    return ok("adressevaelger", rerank(cleaned, hits).slice(0, limit));
   } catch (error) {
     return unavailable(
       "adressevaelger",

@@ -2,17 +2,24 @@ import { ttlFor } from "../catalog.js";
 import { cached } from "../lib/cache.js";
 import { bboxAround } from "../lib/geo.js";
 import { fetchJson } from "../lib/http.js";
+import { parseDesignation } from "./adressevaelger.js";
 import { ok, unavailable, type HeritageBuilding, type HeritageInfo, type SourceResult } from "../types.js";
 
 const ENDPOINT = "https://www.kulturarv.dk/geoserver/wfs";
 /** Listed buildings are only on the fredede view; SAVE values for the rest are on view_bygning_alle. */
 const LAYERS = ["fbb:view_bygning_alle", "fbb:view_bygning_fredede"] as const;
-/** Half-width of the lookup box. The FBB point can sit on the building, not on the address. */
+/** Margin around the property's buildings. The FBB point sits on the building, not on the address. */
 const HALF_M = 50;
+/** An FBB point this close to one of the property's BBR buildings is that building. */
+const NEAR_M = 40;
+/** Wider than this (a big estate far apart), only the main building's surroundings are searched. */
+const MAX_SPAN_M = 1500;
 
 interface GeoJson {
-  features?: Array<{ properties?: Record<string, unknown> }>;
+  features?: Array<{ properties?: Record<string, unknown>; geometry?: { coordinates?: unknown } }>;
 }
+
+type Point = { x: number; y: number };
 
 function integer(value: unknown): number | undefined {
   const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
@@ -36,6 +43,26 @@ export function mapHeritageFeature(properties: Record<string, unknown> | undefin
   };
 }
 
+function pointOf(geometry: { coordinates?: unknown } | undefined): Point | undefined {
+  const coords = geometry?.coordinates;
+  if (!Array.isArray(coords)) return undefined;
+  // Points are [x, y]; multipoints [[x, y], ...].
+  const pair = Array.isArray(coords[0]) ? (coords[0] as unknown[]) : coords;
+  const x = Number(pair[0]);
+  const y = Number(pair[1]);
+  return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : undefined;
+}
+
+/** The box around every building of the property, or around the main point when the buildings lie far apart. */
+export function lookupBox(main: Point, buildings: Point[] = []): [number, number, number, number] {
+  const points = [main, ...buildings];
+  const xs = points.map((point) => point.x);
+  const ys = points.map((point) => point.y);
+  const span = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+  if (span > MAX_SPAN_M) return bboxAround(main.x, main.y, HALF_M);
+  return [Math.min(...xs) - HALF_M, Math.min(...ys) - HALF_M, Math.max(...xs) + HALF_M, Math.max(...ys) + HALF_M];
+}
+
 async function featuresIn(layer: string, bbox: string): Promise<GeoJson> {
   const query = new URLSearchParams({
     SERVICE: "WFS",
@@ -45,15 +72,49 @@ async function featuresIn(layer: string, bbox: string): Promise<GeoJson> {
     outputFormat: "application/json",
     srsName: "EPSG:25832",
     bbox,
-    maxFeatures: "20",
+    maxFeatures: "50",
   });
   return fetchJson<GeoJson>(`${ENDPOINT}?${query}`);
 }
 
-export async function getHeritageAt(x: number, y: number): Promise<SourceResult<HeritageInfo>> {
+/** "Nyhavn 18" and "Nyhavn 18A, 1051 København K" name the same building: street and number digits. */
+function buildingKey(address: string | undefined): string | undefined {
+  if (!address) return undefined;
+  const parsed = parseDesignation(address);
+  const digits = parsed.houseNumber?.match(/\d+/)?.[0];
+  return parsed.street && digits ? `${parsed.street.toLowerCase().replace(/\s+/g, " ")}|${digits}` : undefined;
+}
+
+/**
+ * Marks which FBB buildings are at the property. The lookup box also catches neighbours; when none of the
+ * buildings carries the property's address, nothing is marked because the box cannot tell them apart.
+ */
+export function markAtProperty(
+  items: Array<HeritageBuilding & { point?: Point }>,
+  addresses: string[],
+  buildings: Point[] = [],
+): HeritageBuilding[] {
+  const own = new Set(addresses.map(buildingKey).filter(Boolean));
+  const near = (point: Point | undefined) =>
+    Boolean(point && buildings.some((b) => Math.hypot(b.x - point.x, b.y - point.y) <= NEAR_M));
+  const byAddress = (item: HeritageBuilding) => own.has(buildingKey(item.address));
+  const strip = ({ point: _point, ...item }: HeritageBuilding & { point?: Point }) => item;
+  // The address decides when FBB has it: terraced houses stand within metres of their neighbours.
+  if (own.size && items.some(byAddress)) return items.map((item) => ({ ...strip(item), atProperty: byAddress(item) }));
+  // Otherwise distance to the property's own buildings; FBB files an estate's buildings under other house numbers.
+  if (buildings.length) return items.map((item) => ({ ...strip(item), atProperty: near(item.point) }));
+  return items.map(strip);
+}
+
+export async function getHeritageAt(
+  x: number,
+  y: number,
+  options: { addresses?: string[]; buildings?: Point[] } = {},
+): Promise<SourceResult<HeritageInfo>> {
   try {
-    const bbox = bboxAround(x, y, HALF_M).join(",");
-    const layers = await cached(`fbb:v2:${x.toFixed(0)}:${y.toFixed(0)}`, ttlFor("fbb"), async () => {
+    const box = lookupBox({ x, y }, options.buildings);
+    const bbox = box.join(",");
+    const layers = await cached(`fbb:v3:${box.map((value) => value.toFixed(0)).join(":")}`, ttlFor("fbb"), async () => {
       const settled = await Promise.allSettled(LAYERS.map((layer) => featuresIn(layer, bbox)));
       const okLayers = settled.flatMap((result) => (result.status === "fulfilled" ? [result.value] : []));
       if (okLayers.length === 0) {
@@ -63,7 +124,7 @@ export async function getHeritageAt(x: number, y: number): Promise<SourceResult<
       return okLayers;
     });
     const seen = new Set<string>();
-    const items: HeritageBuilding[] = [];
+    const items: Array<HeritageBuilding & { point?: Point }> = [];
     for (const geo of layers) {
       for (const feature of geo.features ?? []) {
         const item = mapHeritageFeature(feature.properties);
@@ -71,10 +132,13 @@ export async function getHeritageAt(x: number, y: number): Promise<SourceResult<
         const key = `${item.address ?? ""}:${item.saveValue ?? ""}:${item.listed ?? false}`;
         if (seen.has(key)) continue;
         seen.add(key);
-        items.push(item);
+        items.push({ ...item, point: pointOf(feature.geometry) });
       }
     }
-    return ok("fbb", { items });
+    const marked = markAtProperty(items, options.addresses ?? [], options.buildings ?? []);
+    // The property's own buildings first.
+    marked.sort((a, b) => Number(b.atProperty === true) - Number(a.atProperty === true));
+    return ok("fbb", { items: marked });
   } catch (error) {
     return unavailable("fbb", "upstream_error", error instanceof Error ? error.message : String(error));
   }

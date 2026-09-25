@@ -67,7 +67,7 @@ describe("get_trades", () => {
           },
         };
       }
-      const id = query.match(/eq:"(h\d)"/)?.[1];
+      const id = query.match(/eq: ?"(h\d)"/)?.[1];
       const prices: Record<string, number> = { h1: 1_650_000, h2: 2_150_000 };
       return {
         data: {

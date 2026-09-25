@@ -73,6 +73,116 @@ function parseWktPoint(value: unknown): { x: number; y: number } | undefined {
   return undefined;
 }
 
+/** DAR lifecycle codes for addresses in use: 2 proposed, 3 current. 4 and 5 are retired or dropped. */
+const LIVE_DAR_STATUS = new Set(["2", "3"]);
+
+/** Parcel, cadastral ids, BFE and access point for one house number. The property's ids, not a flat's. */
+async function houseNumberIds(houseNumberId: string): Promise<(PropertyIds & { found: boolean }) | undefined> {
+  const house = (
+    await queryNodes(
+      "DAR",
+      "DAR_Husnummer",
+      "id_lokalId husnummertekst adgangsadressebetegnelse adgangspunkt jordstykke kommuneinddeling postnummer",
+      { id_lokalId: { eq: houseNumberId } },
+      1,
+    )
+  )[0];
+  if (!house) return undefined;
+
+  let coordinate;
+  const adgangspunktId = str(house.adgangspunkt);
+  if (adgangspunktId) {
+    const point = (
+      await queryNodes(
+        "DAR",
+        "DAR_Adressepunkt",
+        "id_lokalId position { wkt crs }",
+        { id_lokalId: { eq: adgangspunktId } },
+        1,
+      )
+    )[0];
+    const xy = parseWktPoint(point?.position);
+    if (xy) coordinate = coordinateFromEtrs89(xy.x, xy.y);
+  }
+
+  let bfe: string | undefined;
+  let isCondominium = false;
+  let cadastralDistrictCode: string | undefined;
+  let cadastralNumber: string | undefined;
+  const jordstykkeId = str(house.jordstykke);
+  if (jordstykkeId) {
+    const parcel = (
+      await queryNodes(
+        "MAT",
+        "MAT_Jordstykke",
+        "id_lokalId matrikelnummer registreretAreal samletFastEjendomLokalId ejerlavLokalId kommuneLokalId",
+        { id_lokalId: { eq: jordstykkeId }, status: { eq: "Gældende" } },
+        1,
+      )
+    )[0];
+    cadastralNumber = str(parcel?.matrikelnummer);
+    const ejerlavId = str(parcel?.ejerlavLokalId);
+    if (ejerlavId) {
+      const ejerlav = (
+        await queryNodes(
+          "MAT",
+          "MAT_Ejerlav",
+          "id_lokalId ejerlavskode ejerlavsnavn",
+          { id_lokalId: { eq: ejerlavId } },
+          1,
+        )
+      )[0];
+      cadastralDistrictCode = str(ejerlav?.ejerlavskode);
+    }
+    const sfeId = str(parcel?.samletFastEjendomLokalId);
+    if (sfeId) {
+      const sfe = (
+        await queryNodes(
+          "MAT",
+          "MAT_SamletFastEjendom",
+          "id_lokalId BFEnummer hovedejendomOpdeltIEjerlejligh",
+          { id_lokalId: { eq: sfeId } },
+          1,
+        )
+      )[0];
+      bfe = str(sfe?.BFEnummer) ?? sfeId;
+      isCondominium = Boolean(sfe?.hovedejendomOpdeltIEjerlejligh);
+    }
+  }
+
+  return {
+    found: true,
+    houseNumberId,
+    accessAddressId: houseNumberId,
+    designation: str(house.adgangsadressebetegnelse),
+    bfe,
+    isCondominium,
+    cadastralDistrictCode,
+    cadastralNumber,
+    coordinate,
+  };
+}
+
+/**
+ * The condominium (ejerlejlighed) an address belongs to. EBR links each condominium's BFE to its unit address;
+ * the parcel only knows the main property.
+ */
+export async function condominiumBfeFor(addressId: string): Promise<string | undefined> {
+  const rows = await queryNodes(
+    "EBR",
+    "EBR_Ejendomsbeliggenhed",
+    "bestemtFastEjendomBFENr status",
+    { adresseLokalId: { eq: addressId }, status: { eq: "gældende" } },
+    5,
+  );
+  return rows.map((row) => str(row.bestemtFastEjendomBFENr)).find(Boolean);
+}
+
+function withoutFound(ids: PropertyIds & { found?: boolean }): PropertyIds {
+  const { found: _found, ...rest } = ids;
+  return rest;
+}
+
 export async function resolveFromAddressId(addressId: string): Promise<SourceResult<PropertyIds>> {
   if (!hasKey()) return datafordelerUnavailable("dar");
   try {
@@ -84,93 +194,53 @@ export async function resolveFromAddressId(addressId: string): Promise<SourceRes
       1,
     );
     const adresse = addresses[0];
-    if (!adresse) return unavailable("dar", "not_found", `DAR address ${addressId} not found`);
+    // Search hits for a whole building carry only a house-number id; accept that in place of an address id.
+    if (!adresse) return resolveFromHouseNumberId(addressId);
 
     const houseNumberId = str(adresse.husnummer);
-    let house: Record<string, unknown> | undefined;
-    if (houseNumberId) {
-      house = (
-        await queryNodes(
-          "DAR",
-          "DAR_Husnummer",
-          "id_lokalId husnummertekst adgangsadressebetegnelse adgangspunkt jordstykke kommuneinddeling postnummer",
-          { id_lokalId: { eq: houseNumberId } },
-          1,
-        )
-      )[0];
-    }
-
-    let coordinate;
-    const adgangspunktId = str(house?.adgangspunkt);
-    if (adgangspunktId) {
-      const point = (
-        await queryNodes(
-          "DAR",
-          "DAR_Adressepunkt",
-          "id_lokalId position { wkt crs }",
-          { id_lokalId: { eq: adgangspunktId } },
-          1,
-        )
-      )[0];
-      const xy = parseWktPoint(point?.position);
-      if (xy) coordinate = coordinateFromEtrs89(xy.x, xy.y);
-    }
-
-    let bfe: string | undefined;
-    let isCondominium = false;
-    let cadastralDistrictCode: string | undefined;
-    let cadastralNumber: string | undefined;
-    const jordstykkeId = str(house?.jordstykke);
-    if (jordstykkeId) {
-      const parcel = (
-        await queryNodes(
-          "MAT",
-          "MAT_Jordstykke",
-          "id_lokalId matrikelnummer registreretAreal samletFastEjendomLokalId ejerlavLokalId kommuneLokalId",
-          { id_lokalId: { eq: jordstykkeId } },
-          1,
-        )
-      )[0];
-      cadastralNumber = str(parcel?.matrikelnummer);
-      const ejerlavId = str(parcel?.ejerlavLokalId);
-      if (ejerlavId) {
-        const ejerlav = (
-          await queryNodes(
-            "MAT",
-            "MAT_Ejerlav",
-            "id_lokalId ejerlavskode ejerlavsnavn",
-            { id_lokalId: { eq: ejerlavId } },
-            1,
-          )
-        )[0];
-        cadastralDistrictCode = str(ejerlav?.ejerlavskode);
-      }
-      const sfeId = str(parcel?.samletFastEjendomLokalId);
-      if (sfeId) {
-        const sfe = (
-          await queryNodes(
-            "MAT",
-            "MAT_SamletFastEjendom",
-            "id_lokalId BFEnummer hovedejendomOpdeltIEjerlejligh",
-            { id_lokalId: { eq: sfeId } },
-            1,
-          )
-        )[0];
-        bfe = str(sfe?.BFEnummer) ?? sfeId;
-        isCondominium = Boolean(sfe?.hovedejendomOpdeltIEjerlejligh);
-      }
-    }
-
-    return ok("dar", {
+    const house = houseNumberId ? await houseNumberIds(houseNumberId) : undefined;
+    const ids: PropertyIds = {
+      ...(house ? withoutFound(house) : {}),
       addressId: str(adresse.id_lokalId) ?? addressId,
       houseNumberId,
       accessAddressId: houseNumberId,
-      designation: str(adresse.adressebetegnelse) ?? str(house?.adgangsadressebetegnelse),
-      bfe,
-      isCondominium,
-      cadastralDistrictCode,
-      cadastralNumber,
-      coordinate,
+      designation: str(adresse.adressebetegnelse) ?? house?.designation,
+    };
+
+    // A flat that is its own condominium has its own BFE, valuation and sales.
+    if (house?.isCondominium) {
+      const condoBfe = await condominiumBfeFor(ids.addressId!).catch(() => undefined);
+      if (condoBfe && condoBfe !== house.bfe) {
+        ids.mainBfe = house.bfe;
+        ids.bfe = condoBfe;
+      }
+    }
+    return ok("dar", ids);
+  } catch (error) {
+    return unavailable("dar", "upstream_error", error instanceof Error ? error.message : String(error));
+  }
+}
+
+/** Resolves a house number (a whole building entrance). Uses its own floorless address when it has one. */
+export async function resolveFromHouseNumberId(houseNumberId: string): Promise<SourceResult<PropertyIds>> {
+  if (!hasKey()) return datafordelerUnavailable("dar");
+  try {
+    const house = await houseNumberIds(houseNumberId);
+    if (!house) return unavailable("dar", "not_found", `DAR address or house number ${houseNumberId} not found`);
+    const addresses = (
+      await queryNodes(
+        "DAR",
+        "DAR_Adresse",
+        "id_lokalId adressebetegnelse etagebetegnelse doerbetegnelse status",
+        { husnummer: { eq: houseNumberId } },
+        100,
+      )
+    ).filter((row) => LIVE_DAR_STATUS.has(String(row.status ?? "3")));
+    const plain = addresses.find((row) => !str(row.etagebetegnelse) && !str(row.doerbetegnelse));
+    return ok("dar", {
+      ...withoutFound(house),
+      addressId: str(plain?.id_lokalId),
+      designation: str(plain?.adressebetegnelse) ?? house.designation,
     });
   } catch (error) {
     return unavailable("dar", "upstream_error", error instanceof Error ? error.message : String(error));
@@ -189,25 +259,49 @@ async function cadastralNotes(jordstykkeId: string): Promise<string[]> {
   return [...new Set(rows.map((row) => str(row.tematype)).filter((value): value is string => Boolean(value)))];
 }
 
+/**
+ * The main property (samlet fast ejendom) that owns the land for a BFE. A condominium's BFE has no parcels of
+ * its own, so it is followed to the property it is part of.
+ */
+export async function mainPropertyIdFor(bfe: string): Promise<string | undefined> {
+  const sfe = (
+    await queryNodes("MAT", "MAT_SamletFastEjendom", "id_lokalId BFEnummer", { BFEnummer: { eq: Number(bfe) } }, 1)
+  )[0];
+  if (sfe) return str(sfe.id_lokalId);
+  const condo = (
+    await queryNodes(
+      "MAT",
+      "MAT_Ejerlejlighed",
+      "samletFastEjendomLokalId status",
+      { BFEnummer: { eq: Number(bfe) }, status: { eq: "Gældende" } },
+      1,
+    )
+  )[0];
+  return str(condo?.samletFastEjendomLokalId);
+}
+
+/** Current parcels of a main property. Pending changes ("Ikke gennemført") are left out. */
+async function parcelRowsFor(sfeId: string): Promise<Array<Record<string, unknown>>> {
+  const rows = await queryNodes(
+    "MAT",
+    "MAT_Jordstykke",
+    "id_lokalId matrikelnummer registreretAreal samletFastEjendomLokalId ejerlavLokalId kommuneLokalId status",
+    { samletFastEjendomLokalId: { eq: sfeId }, status: { eq: "Gældende" } },
+  );
+  const byId = new Map<string, Record<string, unknown>>();
+  for (const row of rows) {
+    const id = str(row.id_lokalId);
+    if (id && !byId.has(id)) byId.set(id, row);
+  }
+  return [...byId.values()];
+}
+
 export async function getParcels(bfe: string): Promise<SourceResult<Parcel[]>> {
   if (!hasKey()) return datafordelerUnavailable("matrikel");
   try {
-    const sfe = (
-      await queryNodes(
-        "MAT",
-        "MAT_SamletFastEjendom",
-        "id_lokalId BFEnummer",
-        { BFEnummer: { eq: Number(bfe) || bfe } },
-        1,
-      )
-    )[0];
-    const sfeId = str(sfe?.id_lokalId) ?? bfe;
-    const parcels = await queryNodes(
-      "MAT",
-      "MAT_Jordstykke",
-      "id_lokalId matrikelnummer registreretAreal samletFastEjendomLokalId ejerlavLokalId kommuneLokalId",
-      { samletFastEjendomLokalId: { eq: sfeId } },
-    );
+    const sfeId = await mainPropertyIdFor(bfe);
+    if (!sfeId) return unavailable("matrikel", "not_found", `No parcel for BFE ${bfe}`);
+    const parcels = await parcelRowsFor(sfeId);
     const mapped = [];
     for (const item of parcels) {
       let district: string | undefined;
@@ -316,6 +410,7 @@ function mapBuilding(item: Record<string, unknown>, bfe: string | undefined, flo
   return {
     buildingId: str(item.id_lokalId),
     bfe,
+    houseNumberId: str(item.husnummer),
     usageCode,
     usage: bbrUsage(usageCode),
     constructionYear: num(item.byg026Opfoerelsesaar),
@@ -382,45 +477,109 @@ function mapUnit(item: Record<string, unknown>, addressId: string | undefined): 
   };
 }
 
-export async function getBuildingsAndUnits(
-  args: { bfe?: string; addressId?: string },
-): Promise<SourceResult<{ buildings: Building[]; units: Unit[]; ground?: Ground }>> {
+/** Units listed for a whole building or property; a block of flats can have hundreds. */
+const MAX_UNITS = 20;
+
+/**
+ * Main buildings first: dwellings before other uses, then the building at the address itself, then the largest.
+ * A farm's house beats its bigger barn, and a castle estate's residence is not a random 1743 barn.
+ */
+export function sortBuildings(buildings: Building[], houseNumberId?: string): Building[] {
+  const rank = (b: Building) => [
+    Number(isOutbuilding(b.usageCode)),
+    Number(!/^1\d\d$/.test(b.usageCode ?? "")),
+    Number(!(houseNumberId && b.houseNumberId === houseNumberId)),
+    -(b.totalArea ?? b.builtArea ?? 0),
+    b.constructionYear ?? 9999,
+  ];
+  return [...buildings].sort((a, b) => {
+    const ra = rank(a);
+    const rb = rank(b);
+    for (let i = 0; i < ra.length; i += 1) if (ra[i] !== rb[i]) return ra[i]! - rb[i]!;
+    return 0;
+  });
+}
+
+async function buildingRowsById(ids: string[]): Promise<Array<Record<string, unknown>>> {
+  const rows = await Promise.all(
+    ids.map((id) => queryNodes("BBR", "BBR_Bygning", BUILDING_FIELDS, { id_lokalId: { eq: id } }, 1)),
+  );
+  return rows.flat();
+}
+
+export async function getBuildingsAndUnits(args: {
+  bfe?: string;
+  addressId?: string;
+  houseNumberId?: string;
+  /** The main property when `bfe` is a condominium; its parcels hold the buildings. */
+  mainBfe?: string;
+}): Promise<SourceResult<{ buildings: Building[]; units: Unit[]; ground?: Ground; unitsTotal?: number }>> {
   if (!hasKey()) return datafordelerUnavailable("bbr");
   try {
     let buildingRows: Array<Record<string, unknown>> = [];
-    if (args.addressId) {
-      const addresses = await queryNodes(
-        "DAR",
-        "DAR_Adresse",
-        "husnummer",
-        { id_lokalId: { eq: args.addressId } },
-        1,
-      );
-      const houseNumberId = str(addresses[0]?.husnummer);
-      if (houseNumberId) {
-        buildingRows = await queryNodes("BBR", "BBR_Bygning", BUILDING_FIELDS, {
-          husnummer: { eq: houseNumberId },
-        });
+    const seen = new Set<string>();
+    const addRows = (rows: Array<Record<string, unknown>>) => {
+      for (const row of rows) {
+        const id = str(row.id_lokalId);
+        if (id && seen.has(id)) continue;
+        if (id) seen.add(id);
+        buildingRows.push(row);
+      }
+    };
+
+    let houseNumberId = args.houseNumberId;
+    if (args.addressId && !houseNumberId) {
+      const addresses = await queryNodes("DAR", "DAR_Adresse", "husnummer", { id_lokalId: { eq: args.addressId } }, 1);
+      houseNumberId = str(addresses[0]?.husnummer);
+    }
+    if (houseNumberId) {
+      addRows(await queryNodes("BBR", "BBR_Bygning", BUILDING_FIELDS, { husnummer: { eq: houseNumberId } }));
+    }
+
+    // A flat's building can be registered at a sibling house number (Nyhavn 18A's flats sit in Nyhavn 18's building).
+    const addressUnitRows = args.addressId
+      ? (await queryNodes("BBR", "BBR_Enhed", UNIT_FIELDS, { adresseIdentificerer: { eq: args.addressId } })).filter(
+          isCurrentBbrRow,
+        )
+      : [];
+    const unitBuildingIds = [...new Set(addressUnitRows.map((row) => str(row.bygning)).filter((id): id is string => Boolean(id)))];
+    addRows(await buildingRowsById(unitBuildingIds.filter((id) => !seen.has(id))));
+
+    // Nothing at the address: take the buildings standing on the property's parcels.
+    if (buildingRows.filter(isCurrentBbrRow).length === 0) {
+      const propertyBfe = args.mainBfe ?? args.bfe;
+      const sfeId = propertyBfe ? await mainPropertyIdFor(propertyBfe) : undefined;
+      const parcelIds = sfeId ? (await parcelRowsFor(sfeId)).map((row) => str(row.id_lokalId)).filter(Boolean) : [];
+      for (const parcelId of parcelIds.slice(0, 10)) {
+        addRows(await queryNodes("BBR", "BBR_Bygning", BUILDING_FIELDS, { jordstykke: { eq: parcelId } }));
       }
     }
 
     // Outbuildings often have no address of their own, so also collect every building on the same BBR ground.
     const groundId = buildingRows.map((row) => str(row.grund)).find(Boolean);
     if (groundId) {
-      const onGround = await queryNodes("BBR", "BBR_Bygning", BUILDING_FIELDS, { grund: { eq: groundId } });
-      const seen = new Set(buildingRows.map((row) => str(row.id_lokalId)));
-      for (const row of onGround) {
-        if (!seen.has(str(row.id_lokalId))) buildingRows.push(row);
-      }
+      addRows(await queryNodes("BBR", "BBR_Bygning", BUILDING_FIELDS, { grund: { eq: groundId } }));
     }
 
     buildingRows = buildingRows.filter(isCurrentBbrRow);
 
-    const unitRows = (
-      args.addressId
-        ? await queryNodes("BBR", "BBR_Enhed", UNIT_FIELDS, { adresseIdentificerer: { eq: args.addressId } })
-        : []
-    ).filter(isCurrentBbrRow);
+    // For a flat, its own units. For a whole building or property, the units in its main buildings.
+    let unitRows = addressUnitRows;
+    let unitsTotal: number | undefined;
+    if (!args.addressId) {
+      const mainIds = buildingRows
+        .filter((row) => !isOutbuilding(str(row.byg021BygningensAnvendelse)))
+        .map((row) => str(row.id_lokalId))
+        .filter((id): id is string => Boolean(id))
+        .slice(0, 5);
+      const rows = (
+        await Promise.all(mainIds.map((id) => queryNodes("BBR", "BBR_Enhed", UNIT_FIELDS, { bygning: { eq: id } }, 100)))
+      )
+        .flat()
+        .filter(isCurrentBbrRow);
+      if (rows.length > MAX_UNITS) unitsTotal = rows.length;
+      unitRows = rows.slice(0, MAX_UNITS);
+    }
 
     const buildings = await Promise.all(
       buildingRows.map(async (item) => {
@@ -429,12 +588,7 @@ export async function getBuildingsAndUnits(
         return mapBuilding(item, args.bfe, floorRows.map(mapFloor));
       }),
     );
-    // Main buildings first, outbuildings after, oldest first within each group.
-    buildings.sort(
-      (a, b) =>
-        Number(isOutbuilding(a.usageCode)) - Number(isOutbuilding(b.usageCode)) ||
-        (a.constructionYear ?? 9999) - (b.constructionYear ?? 9999),
-    );
+    const sorted = sortBuildings(buildings, houseNumberId);
 
     const units = unitRows.map((item) => mapUnit(item, args.addressId));
 
@@ -458,10 +612,10 @@ export async function getBuildingsAndUnits(
       }
     }
 
-    if (buildings.length === 0 && units.length === 0) {
+    if (sorted.length === 0 && units.length === 0) {
       return unavailable("bbr", "not_found", "No BBR buildings or units found");
     }
-    return ok("bbr", { buildings, units, ground });
+    return ok("bbr", { buildings: sorted, units, ground, ...(unitsTotal ? { unitsTotal } : {}) });
   } catch (error) {
     return unavailable("bbr", "upstream_error", error instanceof Error ? error.message : String(error));
   }
@@ -489,16 +643,56 @@ export function mapValuationRows(bfe: string, rows: Array<Record<string, unknown
     const key = `${entry.year}:${system}:${entry.propertyValue}:${entry.landValue}`;
     if (!byKey.has(key)) byKey.set(key, entry);
   }
-  const history = [...byKey.values()].sort(
+
+  // One year can hold several valuations of the same property: parts with their own valued area (an estate valued
+  // as farm and forest) are added together; rows for the same area are corrections, and the newest one counts.
+  const byYear = new Map<string, ValuationEntry[]>();
+  for (const entry of byKey.values()) {
+    const key = `${entry.year}:${entry.system}`;
+    byYear.set(key, [...(byYear.get(key) ?? []), entry]);
+  }
+  const history: ValuationEntry[] = [];
+  for (const entries of byYear.values()) {
+    const byArea = new Map<string, ValuationEntry>();
+    for (const entry of entries) {
+      const area = String(entry.valuedArea ?? "?");
+      const current = byArea.get(area);
+      if (!current || (entry.changedOn ?? "") > (current.changedOn ?? "")) byArea.set(area, entry);
+    }
+    const parts = [...byArea.values()];
+    if (parts.length === 1 || parts.some((part) => part.valuedArea === null || part.valuedArea === undefined)) {
+      history.push(...parts);
+      continue;
+    }
+    const sum = (pick: (entry: ValuationEntry) => number | null | undefined) =>
+      parts.reduce((total, part) => total + (pick(part) ?? 0), 0);
+    history.push({
+      ...parts[0]!,
+      propertyValue: sum((part) => part.propertyValue),
+      landValue: sum((part) => part.landValue),
+      valuedArea: sum((part) => part.valuedArea),
+      changedOn: parts.map((part) => part.changedOn ?? "").sort().at(-1) || undefined,
+      parts: parts.length,
+    });
+  }
+  history.sort(
     (a, b) => (b.year ?? 0) - (a.year ?? 0) || Number(b.system === "new") - Number(a.system === "new"),
   );
+
   // A zero valuation (e.g. the parent property of condominiums) is kept in history but never reported as latest.
   const valued = history.filter((item) => (item.propertyValue ?? 0) > 0 || (item.landValue ?? 0) > 0);
+  const latest = valued[0] ?? history[0];
+  const newestZero = history.find((item) => (item.year ?? 0) > (latest?.year ?? 0) && !valued.includes(item));
   return {
     bfe,
-    latest: valued[0] ?? history[0],
+    latest,
     latestNew: valued.find((item) => item.system === "new"),
     latestOld: valued.find((item) => item.system === "old"),
+    ...(newestZero
+      ? {
+          note: `Vurderingen for ${newestZero.year} er 0 kr., typisk for en hovedejendom opdelt i ejerlejligheder eller en ejendom uden selvstændig vurdering. ${latest?.year ?? "Ingen"} er seneste vurdering med et beløb.`,
+        }
+      : {}),
     history,
   };
 }
@@ -536,6 +730,12 @@ export async function getValuation(bfe: string): Promise<SourceResult<Valuation>
   } catch (error) {
     return unavailable("vur", "upstream_error", error instanceof Error ? error.message : String(error));
   }
+}
+
+/** EJF stores unknown dates of old transfers as the Unix epoch (shown as 1969-12-31 or 1970-01-01). */
+export function realDate(value: unknown): string | undefined {
+  const date = str(value)?.slice(0, 10);
+  return date && date !== "1969-12-31" && date !== "1970-01-01" ? date : undefined;
 }
 
 const EJF_ATTRIBUTION = "Kilde: Ejerfortegnelsen, Geodatastyrelsen (CC BY 4.0)";
@@ -579,8 +779,8 @@ export async function getTrades(bfe: string): Promise<SourceResult<Trade[]>> {
           : undefined;
         return {
           bfe,
-          date: str(item.overtagelsesdato)?.slice(0, 10),
-          agreementDate: str(sale?.koebsaftaleDato)?.slice(0, 10),
+          date: realDate(item.overtagelsesdato),
+          agreementDate: realDate(sale?.koebsaftaleDato),
           price: num(sale?.samletKoebesum),
           cashPrice: num(sale?.kontantKoebesum),
           movablesAmount: num(sale?.loesoeresum),

@@ -129,6 +129,29 @@ export async function graphql<T>(
   return loader();
 }
 
+/**
+ * Writes a filter as a GraphQL input literal. Keys must be plain names; every string value is JSON-escaped,
+ * so user input can never close a string or add filter fields.
+ */
+export function graphqlLiteral(value: unknown): string {
+  if (value === null || value === undefined) return "null";
+  if (typeof value === "string") return JSON.stringify(value);
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) throw new Error(`Invalid number in GraphQL filter: ${value}`);
+    return String(value);
+  }
+  if (typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) return `[${value.map(graphqlLiteral).join(", ")}]`;
+  if (typeof value === "object") {
+    const fields = Object.entries(value as Record<string, unknown>).map(([key, item]) => {
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) throw new Error(`Invalid GraphQL field name: ${key}`);
+      return `${key}: ${graphqlLiteral(item)}`;
+    });
+    return `{ ${fields.join(", ")} }`;
+  }
+  throw new Error(`Unsupported value in GraphQL filter: ${typeof value}`);
+}
+
 export async function queryNodes(
   register: DatafordelerRegister,
   entity: string,
@@ -137,7 +160,7 @@ export async function queryNodes(
   first = 20,
   options: { temporal?: boolean; auth?: DatafordelerAuth } = {},
 ): Promise<Array<Record<string, unknown>>> {
-  const whereLiteral = JSON.stringify(where).replace(/"([^"]+)":/g, "$1:");
+  const whereLiteral = graphqlLiteral(where);
   const temporal =
     options.temporal === false
       ? ""

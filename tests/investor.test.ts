@@ -319,7 +319,7 @@ describe("BBR fetch", () => {
     vi.spyOn(http, "fetchJson").mockImplementation(async (_url: string, options?: http.FetchJsonOptions) => {
       const query = (options?.body as { query: string }).query;
       const entity = query.match(/(DAR_Adresse|BBR_Bygning|BBR_Etage|BBR_Enhed|BBR_Grund)\(/)?.[1] ?? "";
-      const key = entity === "BBR_Bygning" ? (query.includes("where: {grund:") ? "BBR_Bygning_grund" : "BBR_Bygning_husnummer") : entity;
+      const key = entity === "BBR_Bygning" ? (/where: \{ ?grund:/.test(query) ? "BBR_Bygning_grund" : "BBR_Bygning_husnummer") : entity;
       const rows = entity === "BBR_Etage" && !query.includes('"b1"') ? [] : nodes[key] ?? [];
       return { data: { [entity]: { nodes: rows } } };
     });

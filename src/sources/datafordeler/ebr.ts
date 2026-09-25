@@ -27,7 +27,8 @@ export function mapPropertyLocation(row: Record<string, unknown>): PropertyLocat
   return {
     bfe: str(row.bestemtFastEjendomBFENr) ?? "",
     designation: str(row.betegnelse),
-    hasStreetAddress: Boolean(houseNumberId),
+    // A condominium is located by its unit address, a whole property by its house number.
+    hasStreetAddress: Boolean(houseNumberId ?? str(row.adresseLokalId)),
     houseNumberId,
     addressId: str(row.adresseLokalId),
     municipalityCode: str(row.kommuneinddelingKommunekode),

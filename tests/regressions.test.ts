@@ -1,0 +1,260 @@
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { buildFlags } from "../src/analysis/flags.js";
+import { resetConfigForTests } from "../src/config.js";
+import { safeUrl } from "../src/lib/http.js";
+import { repairMojibake } from "../src/lib/text.js";
+import { matchWarning, normalizeId } from "../src/resolve.js";
+import { cleanQuery, danishSpelling, mapSearchHit, parseDesignation, rerank } from "../src/sources/adressevaelger.js";
+import { graphqlLiteral } from "../src/sources/datafordeler/client.js";
+import { mapValuationRows, realDate, sortBuildings } from "../src/sources/datafordeler/registers.js";
+import { markAtProperty } from "../src/sources/fbb.js";
+import * as report from "../src/tools/property-report.js";
+import { listWatchlist, watchProperty } from "../src/tools/watch.js";
+import type { AddressMatch, Building } from "../src/types.js";
+
+afterEach(() => {
+  resetConfigForTests(undefined);
+  delete process.env.BOLIGMCP_WATCHLIST_FILE;
+  vi.restoreAllMocks();
+});
+
+const hit = (designation: string, type: AddressMatch["type"] = "address"): AddressMatch => ({
+  ...parseDesignation(designation),
+  designation,
+  type,
+  floor: parseDesignation(designation).floor ?? null,
+});
+
+describe("address search", () => {
+  it("reads floor, door and postcode from the designation, since the API sends only the title", () => {
+    expect(parseDesignation("Istedgade 50, 3. th, 1650 København V")).toMatchObject({
+      street: "Istedgade",
+      houseNumber: "50",
+      floor: "3",
+      door: "th",
+      postalCode: "1650",
+      postalName: "København V",
+    });
+    expect(parseDesignation("Egeskovvej 41, Hald Ege, 8800 Viborg")).toMatchObject({ houseNumber: "41", floor: undefined, postalCode: "8800" });
+    expect(parseDesignation("Nyhavn 18, kl., 1051 København K").floor).toBe("kl");
+    const mapped = mapSearchHit({ type: "adresse", id: "a1", titel: "Istedgade 50, 1., 1650 København V", husnummerId: "h1" });
+    expect(mapped).toMatchObject({ addressId: "a1", houseNumberId: "h1", floor: "1", door: null, houseNumber: "50", postalCode: "1650" });
+  });
+
+  it("puts a town named without postcode first", () => {
+    const ranked = rerank("Boulevarden 1 Aalborg", [
+      hit("Boulevarden 1, Balka, 3730 Nexø"),
+      hit("Boulevarden 1, Ø. Kippinge, 4840 Nørre Alslev"),
+      hit("Boulevarden 1, 9000 Aalborg", "house_number"),
+    ]);
+    expect(ranked[0]?.designation).toBe("Boulevarden 1, 9000 Aalborg");
+  });
+
+  it("prefers the building's own address over a flat when no floor was asked for", () => {
+    const ranked = rerank("Nørrebrogade 1, 2200 København N", [
+      hit("Nørrebrogade 1, 1., 2200 København N"),
+      hit("Nørrebrogade 1, 2200 København N"),
+    ]);
+    expect(ranked[0]?.designation).toBe("Nørrebrogade 1, 2200 København N");
+  });
+
+  it("respells ASCII Danish and English names, and strips symbols", () => {
+    expect(danishSpelling("Noerrebrogade 1, 2200 Koebenhavn N")).toBe("Nørrebrogade 1, 2200 København N");
+    expect(danishSpelling("HC Andersens Blvd 2 Copenhagen")).toBe("H.C. Andersens Boulevard 2 København");
+    expect(danishSpelling("Boulevarden 1 Aalborg")).toBe("Boulevarden 1 Aalborg");
+    expect(cleanQuery("🏠🏠 Nyhavn 18")).toBe("Nyhavn 18");
+    expect(cleanQuery("a".repeat(3000))).toHaveLength(200);
+  });
+});
+
+describe("address resolution", () => {
+  it("normalises pasted ids", () => {
+    expect(normalizeId(" 0A3F50C6-588F-32B8-E044-0003BA298018 ")).toBe("0a3f50c6-588f-32b8-e044-0003ba298018");
+    expect(normalizeId("  ")).toBeUndefined();
+  });
+
+  it("warns when the floor, door or town is not the one asked for", () => {
+    expect(matchWarning("Istedgade 50, 3. th, 1650 København V", "Istedgade 50, st., 1650 København V")).toMatch(
+      /etage 3 findes ikke, fandt st; dør th findes ikke/,
+    );
+    expect(matchWarning("Rådhuspladsen 1", "Rådhuspladsen 1, 1550 København V", [
+      hit("Rådhuspladsen 1, 1550 København V", "house_number"),
+      hit("Rådhuspladsen 1, 3300 Frederiksværk"),
+    ])).toMatch(/3300 Frederiksværk/);
+    expect(matchWarning("Strandvejen 100 hellerup", "Strandvejen 100, 2900 Hellerup", [
+      hit("Strandvejen 100, 2900 Hellerup", "house_number"),
+      hit("Strandvejen 100, 3300 Frederiksværk"),
+    ])).toBeUndefined();
+    expect(matchWarning("Egeskovvej 41, 8800 Viborg", "Egeskovvej 41, Hald Ege, 8800 Viborg")).toBeUndefined();
+  });
+});
+
+describe("GraphQL filters", () => {
+  it("escapes values so input cannot break out of a string", () => {
+    expect(graphqlLiteral({ BFEnummer: { eq: 6033799 } })).toBe("{ BFEnummer: { eq: 6033799 } }");
+    expect(graphqlLiteral({ id_lokalId: { eq: 'x": 1} OR {a: "' } })).toBe('{ id_lokalId: { eq: "x\\": 1} OR {a: \\"" } }');
+    expect(() => graphqlLiteral({ "bad key": 1 })).toThrow(/field name/);
+    expect(() => graphqlLiteral({ BFEnummer: { eq: Number.NaN } })).toThrow(/Invalid number/);
+  });
+
+  it("keeps tokens and user input out of error messages", () => {
+    expect(safeUrl("https://adressevaelger.dk/adresser/soeg?tekst=aaa&token=secret")).toBe("https://adressevaelger.dk/adresser/soeg");
+  });
+});
+
+describe("valuation", () => {
+  it("adds up a property valued in parts in the same year", () => {
+    // Egeskov Gade 18: the estate and a small part are valued separately.
+    const valuation = mapValuationRows("9519007", [
+      { id: 965000000000001, aar: 2020, ejendomvaerdiBeloeb: 73000000, grundvaerdiBeloeb: 21567700, vurderetAreal: 4830678 },
+      { id: 965000000000002, aar: 2020, ejendomvaerdiBeloeb: 120700, grundvaerdiBeloeb: 120700, vurderetAreal: 33832 },
+    ]);
+    expect(valuation.latest).toMatchObject({ year: 2020, propertyValue: 73120700, landValue: 21688400, valuedArea: 4864510, parts: 2 });
+  });
+
+  it("keeps the newest correction for the same valued area", () => {
+    const valuation = mapValuationRows("1", [
+      { id: 965000000000001, aar: 2020, ejendomvaerdiBeloeb: 1000000, grundvaerdiBeloeb: 200000, vurderetAreal: 800, aendringDato: "2020-10-01" },
+      { id: 965000000000002, aar: 2020, ejendomvaerdiBeloeb: 1100000, grundvaerdiBeloeb: 200000, vurderetAreal: 800, aendringDato: "2021-03-01" },
+    ]);
+    expect(valuation.latest).toMatchObject({ propertyValue: 1100000 });
+    expect(valuation.latest?.parts).toBeUndefined();
+  });
+
+  it("explains a newer zero valuation instead of skipping it silently", () => {
+    const valuation = mapValuationRows("10229320", [
+      { id: 965000000000001, aar: 2020, ejendomvaerdiBeloeb: 0, grundvaerdiBeloeb: 0, vurderetAreal: 1640 },
+      { id: 965000000000002, aar: 2007, ejendomvaerdiBeloeb: 1500000, grundvaerdiBeloeb: 66200, vurderetAreal: 740 },
+    ]);
+    expect(valuation.latest?.year).toBe(2007);
+    expect(valuation.note).toMatch(/2020 er 0 kr/);
+  });
+});
+
+describe("sales", () => {
+  it("drops EJF's epoch placeholder dates", () => {
+    expect(realDate("1969-12-31T23:00:00Z")).toBeUndefined();
+    expect(realDate("1970-01-01")).toBeUndefined();
+    expect(realDate("2019-03-15T00:00:00Z")).toBe("2019-03-15");
+  });
+
+  it("takes the latest priced sale, not an unpriced transfer", () => {
+    const sale = report.lastSale([
+      { bfe: "1", date: "2023-10-31", price: null, transferType: "Ikke oplyst" },
+      { bfe: "1", date: "2008-01-14", price: 3500000, transferType: "Almindelig fri handel" },
+    ]);
+    expect(sale).toMatchObject({ date: "2008-01-14", price: 3500000 });
+  });
+});
+
+describe("main building", () => {
+  const building = (usageCode: string, totalArea: number, extra: Partial<Building> = {}): Building => ({ usageCode, totalArea, ...extra });
+
+  it("puts the dwelling before a larger barn, and the largest dwelling first", () => {
+    const sorted = sortBuildings([building("219", 929), building("920", 42), building("120", 460), building("310", 1864)]);
+    expect(sorted.map((b) => b.usageCode)).toEqual(["120", "310", "219", "920"]);
+  });
+
+  it("prefers the building at the address among equals", () => {
+    const sorted = sortBuildings([building("140", 900, { houseNumberId: "other" }), building("140", 800, { houseNumberId: "mine" })], "mine");
+    expect(sorted[0]?.houseNumberId).toBe("mine");
+  });
+});
+
+describe("flags", () => {
+  const framework = { type: "municipal_framework" as const, maxPlotRatioPct: 40 };
+
+  it("does not invent building rights when BBR has no floor areas", () => {
+    const flags = buildFlags({
+      buildings: [{ usageCode: undefined, totalArea: null, builtArea: null }],
+      parcels: [{ registeredArea: 664 }],
+      plans: { items: [framework], nearby: [] },
+    });
+    expect(flags.find((flag) => flag.id === "building_rights")).toBeUndefined();
+  });
+
+  it("ignores neighbouring listed buildings", () => {
+    const heritage = markAtProperty(
+      [
+        { address: "Nyhavn 18", saveValue: 1, listed: true },
+        { address: "Nyhavn 20", listed: true },
+      ],
+      ["Nyhavn 18A, 1051 København K"],
+    );
+    expect(heritage.map((item) => item.atProperty)).toEqual([true, false]);
+    const flags = buildFlags({ heritage: { items: heritage } });
+    expect(flags.find((flag) => flag.id === "listed_building")?.detail).toBe("Nyhavn 18");
+  });
+
+  it("leaves heritage unmarked when no building has the property's address", () => {
+    const items = markAtProperty([{ address: "Egeskov Gade 1", listed: true }], ["Egeskov Gade 18, 5772 Kværndrup"]);
+    expect(items[0]?.atProperty).toBeUndefined();
+  });
+});
+
+describe("plan texts", () => {
+  it("repairs double-encoded UTF-8 and leaves correct text alone", () => {
+    expect(repairMojibake("OmrÃ¥de til centerformÃ¥l i SÃ¸ndervig")).toBe("Område til centerformål i Søndervig");
+    expect(repairMojibake("Ringkøbing-Skjern")).toBe("Ringkøbing-Skjern");
+  });
+});
+
+describe("report for an address that does not exist", () => {
+  it("returns no summary numbers and no false credential hint", () => {
+    resetConfigForTests({ adressevaelgerToken: "t", cachePath: ":memory:", datafordelerApiKey: "key" });
+    const data: report.PropertyData = {
+      idsResult: { status: "unavailable", source: "adressevaelger", reason: "not_found", detail: "No matches" },
+    };
+    expect(report.summarize(data)).toEqual({});
+    expect(report.missingSources(data).map((item) => item.source)).toEqual(["adressevaelger"]);
+  });
+});
+
+describe("watchlist file", () => {
+  const collected = () =>
+    vi.spyOn(report, "collectPropertyData").mockImplementation(async () => ({
+      idsResult: { status: "ok", source: "dar", fetchedAt: "", data: { bfe: "3451459", designation: "Egeskovvej 41, 8800 Viborg" } },
+      ids: { bfe: "3451459", designation: "Egeskovvej 41, 8800 Viborg" },
+    }));
+
+  it("never overwrites a file it cannot read", async () => {
+    const path = join(mkdtempSync(join(tmpdir(), "boligmcp-watch-")), "watchlist.json");
+    process.env.BOLIGMCP_WATCHLIST_FILE = path;
+    writeFileSync(path, '{"entries": [ {broken');
+    collected();
+    expect(await watchProperty("Egeskovvej 41, 8800 Viborg")).toMatchObject({ error: expect.stringMatching(/not valid JSON/) });
+    expect(listWatchlist()).toMatchObject({ error: expect.stringMatching(/left untouched/) });
+    expect(readFileSync(path, "utf8")).toBe('{"entries": [ {broken');
+  });
+
+  it("keeps the baseline when a property is watched again", async () => {
+    process.env.BOLIGMCP_WATCHLIST_FILE = join(mkdtempSync(join(tmpdir(), "boligmcp-watch-")), "watchlist.json");
+    collected();
+    const first = await watchProperty("Egeskovvej 41, 8800 Viborg", "first");
+    const again = await watchProperty("Egeskovvej 41, 8800 Viborg");
+    expect(again).toMatchObject({ alreadyWatched: true });
+    expect("snapshot" in again && "snapshot" in first ? again.snapshot.takenAt : "").toBe("snapshot" in first ? first.snapshot.takenAt : "x");
+    expect(listWatchlist()).toEqual([expect.objectContaining({ note: "first" })]);
+  });
+});
+
+describe("heritage on an estate", () => {
+  it("counts a listed building filed under another number when it stands among the property's buildings", () => {
+    // Egeskov Gade 18: the castle is filed in FBB as Egeskov Gade 26, ~150 m from the address point.
+    const items = markAtProperty(
+      [
+        { address: "Egeskov Gade 26", listed: true, point: { x: 594901, y: 6115396 } } as never,
+        { address: "Egeskov Gade 4", saveValue: 4, point: { x: 594722, y: 6114700 } } as never,
+      ],
+      ["Egeskov Gade 18, 5772 Kværndrup"],
+      [{ x: 594905, y: 6115380 }],
+    );
+    expect(items).toEqual([
+      { address: "Egeskov Gade 26", listed: true, atProperty: true },
+      { address: "Egeskov Gade 4", saveValue: 4, atProperty: false },
+    ]);
+  });
+});

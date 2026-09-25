@@ -2,6 +2,7 @@ import { ttlFor } from "../catalog.js";
 import { cached } from "../lib/cache.js";
 import { bboxAround, pointWkt } from "../lib/geo.js";
 import { fetchJson } from "../lib/http.js";
+import { repairMojibake } from "../lib/text.js";
 import {
   ok,
   unavailable,
@@ -40,7 +41,7 @@ function prop(props: Record<string, unknown> | undefined, ...keys: string[]): st
   if (!props) return undefined;
   for (const key of keys) {
     const value = props[key];
-    if (value !== undefined && value !== null && String(value).trim()) return String(value).trim();
+    if (value !== undefined && value !== null && String(value).trim()) return repairMojibake(String(value).trim());
   }
   return undefined;
 }

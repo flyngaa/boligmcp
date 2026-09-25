@@ -17,6 +17,7 @@ import {
   getTrades,
   getValuation,
 } from "../sources/datafordeler/registers.js";
+import { getConfig } from "../config.js";
 import { resolveProperty } from "../resolve.js";
 import { unavailable } from "../types.js";
 import type {
@@ -77,11 +78,27 @@ function compact<T>(result: SourceResult<T>, maxItems?: number): SourceResult<un
   return result;
 }
 
+/** Estates and blocks of flats can have dozens of buildings and units; the report keeps the first (main) ones. */
+function compactBbr(result: BbrResult, maxBuildings: number, maxUnits: number): SourceResult<unknown> {
+  if (result.status !== "ok") return result;
+  const { buildings, units, ...rest } = result.data;
+  return {
+    ...result,
+    data: {
+      ...rest,
+      buildings: buildings.slice(0, maxBuildings),
+      units: units.slice(0, maxUnits),
+      ...(buildings.length > maxBuildings ? { buildingsTotal: buildings.length } : {}),
+      ...(units.length > maxUnits && !rest.unitsTotal ? { unitsTotal: units.length } : {}),
+    },
+  };
+}
+
 function unwrap<T>(settled: PromiseSettledResult<T | undefined>): T | undefined {
   return settled.status === "fulfilled" ? settled.value : undefined;
 }
 
-type BbrResult = SourceResult<{ buildings: Building[]; units: Unit[]; ground?: Ground }>;
+type BbrResult = SourceResult<{ buildings: Building[]; units: Unit[]; ground?: Ground; unitsTotal?: number }>;
 
 /**
  * Plans and overlays are looked up at the main building's BBR coordinate, which lies inside the plot.
@@ -99,6 +116,12 @@ export function lookupPointFor(
   }
   const coord = ids?.coordinate?.epsg25832;
   return coord ? { ...coord, kind: "address" } : undefined;
+}
+
+/** Positions of the property's buildings, for lookups that must cover a whole estate. */
+export function buildingPoints(buildings: BbrResult | undefined): Array<{ x: number; y: number }> {
+  if (buildings?.status !== "ok") return [];
+  return buildings.data.buildings.flatMap((b) => (b.coordinate ? [b.coordinate.epsg25832] : []));
 }
 
 export function parcelRefs(ids: PropertyIds | undefined, parcel: SourceResult<Parcel[]> | undefined) {
@@ -162,11 +185,13 @@ export async function collectPropertyData(
   }
 
   const addressCoord = ids?.coordinate?.epsg25832;
+  // A condominium's land and parcels belong to the main property.
+  const landBfe = ids?.mainBfe ?? ids?.bfe;
   const first = await Promise.allSettled([
-    ids?.bfe || ids?.addressId
-      ? getBuildingsAndUnits({ bfe: ids.bfe, addressId: ids.addressId })
+    ids?.bfe || ids?.addressId || ids?.houseNumberId
+      ? getBuildingsAndUnits({ bfe: ids.bfe, addressId: ids.addressId, houseNumberId: ids.houseNumberId, mainBfe: ids.mainBfe })
       : Promise.resolve(undefined),
-    ids?.bfe ? getParcels(ids.bfe) : Promise.resolve(undefined),
+    landBfe ? getParcels(landBfe) : Promise.resolve(undefined),
     ids?.bfe ? getValuation(ids.bfe) : Promise.resolve(undefined),
     ids?.bfe && !skip.trades ? getTrades(ids.bfe) : Promise.resolve(undefined),
     addressCoord ? getAdminAreasAt(addressCoord.x, addressCoord.y) : Promise.resolve(undefined),
@@ -206,7 +231,9 @@ export async function collectPropertyData(
           statsTimeout,
         )
       : Promise.resolve(undefined),
-    point ? getHeritageAt(point.x, point.y) : Promise.resolve(undefined),
+    point
+      ? getHeritageAt(point.x, point.y, { addresses: ids?.designation ? [ids.designation] : [], buildings: buildingPoints(buildings) })
+      : Promise.resolve(undefined),
   ]);
 
   return {
@@ -232,11 +259,20 @@ export async function collectPropertyData(
   };
 }
 
+/** The latest sale with a price. Transfers without one (inheritance, "Ikke oplyst") are not sales. */
+export function lastSale(trades: Trade[] | undefined): Trade | undefined {
+  return trades?.find((trade) => (trade.price ?? 0) > 0);
+}
+
 export function summarize(data: PropertyData) {
   const { ids, buildings, valuation, trades, admin, plans, environment, energy, parcel, site } = data;
+  // Nothing resolved: no zeros that would read as "no plans" or "no contamination".
+  if (data.idsResult.status !== "ok") return {};
   const buildingData = buildings?.status === "ok" ? buildings.data : undefined;
   const main = buildingData?.buildings.find((b) => !isOutbuilding(b.usageCode)) ?? buildingData?.buildings[0];
-  const latestTrade = trades?.status === "ok" ? trades.data[0] : undefined;
+  const latestTrade = lastSale(trades?.status === "ok" ? trades.data : undefined);
+  // One unit describes the address; several belong to a whole building, where the building's totals apply.
+  const unit = buildingData?.units.length === 1 ? buildingData.units[0] : undefined;
   const val = valuation?.status === "ok" ? valuation.data : undefined;
   const planItems: PlanItem[] = plans?.status === "ok" ? plans.data.items : [];
   const envItems = environment?.status === "ok" ? environment.data.items : [];
@@ -246,31 +282,33 @@ export function summarize(data: PropertyData) {
 
   return {
     designation: ids?.designation,
+    matchWarning: ids?.matchWarning,
     addressId: ids?.addressId,
     bfe: ids?.bfe,
+    mainBfe: ids?.mainBfe,
     municipality: admin?.status === "ok" ? admin.data.municipalityName : undefined,
     constructionYear: main?.constructionYear,
     usage: main?.usage,
-    dwellingArea: buildingData?.units[0]?.dwellingArea ?? main?.dwellingArea,
-    rooms: buildingData?.units[0]?.rooms,
+    dwellingArea: unit?.dwellingArea ?? main?.dwellingArea,
+    rooms: unit?.rooms,
     plotArea,
-    heating: main ? [main.heating, main.heatingFuel].filter(Boolean).join(" · ") : undefined,
-    tenure: buildingData?.units[0]?.tenure,
+    heating: main ? [main.heating, main.heatingFuel].filter(Boolean).join(" · ") || undefined : undefined,
+    tenure: unit?.tenure,
     valuation: (val?.latestNew ?? val?.latest)?.propertyValue,
     valuationYear: (val?.latestNew ?? val?.latest)?.year,
     landValue: (val?.latestNew ?? val?.latest)?.landValue,
     lastTrade: latestTrade?.price,
     lastTradeDate: latestTrade?.date,
     zone: planItems.find((item) => item.type === "zone")?.zoneStatus,
-    localPlans: planItems.filter((item) => item.type === "local_plan").length,
+    localPlans: plans?.status === "ok" ? planItems.filter((item) => item.type === "local_plan").length : undefined,
     // Some municipalities repeat the plan number in the name ("R24.B.4.16 - B4").
     framework: framework
       ? framework.planNumber && !framework.name?.startsWith(framework.planNumber)
         ? `${framework.planNumber} ${framework.name ?? ""}`.trim()
         : framework.name ?? framework.planNumber
       : undefined,
-    environmentalHits: envItems.filter((item) => item.onProperty).length,
-    environmentalNearby: envItems.filter((item) => !item.onProperty).length,
+    environmentalHits: environment?.status === "ok" ? envItems.filter((item) => item.onProperty).length : undefined,
+    environmentalNearby: environment?.status === "ok" ? envItems.filter((item) => !item.onProperty).length : undefined,
     siteConditions: site?.status === "ok" ? site.data.items.length : undefined,
     terrainM: data.terrain?.status === "ok" ? data.terrain.data.terrainM : undefined,
     energyLabel: energy?.status === "ok" ? energy.data.rating : undefined,
@@ -311,7 +349,8 @@ export function missingSources(data: PropertyData): Array<{ source: string; reas
   ]) {
     collect(result);
   }
-  if (!data.ids?.bfe) {
+  // Without a Datafordeleren key the address still resolves, but no BFE and nothing keyed on it.
+  if (data.ids && !data.ids.bfe && !getConfig().datafordelerApiKey && !seen.has("dar:missing_credentials")) {
     missing.push({
       source: "matrikel",
       reason: "missing_credentials",
@@ -334,7 +373,7 @@ export async function buildPropertyReport(input: {
     summary,
     flags,
     ids: data.idsResult,
-    buildings: data.buildings ? compact(data.buildings, 8) : undefined,
+    buildings: data.buildings ? compactBbr(data.buildings, 8, 5) : undefined,
     parcel: data.parcel ? compact(data.parcel, 8) : undefined,
     valuation: data.valuation,
     trades: data.trades ? compact(data.trades, 5) : undefined,
