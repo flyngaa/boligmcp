@@ -22,6 +22,8 @@ export interface WatchSnapshot {
 export interface WatchEntry {
   id: string;
   designation?: string;
+  /** The DAR address, so an entry added before a BFE was known is found again once it is. */
+  addressId?: string;
   query: string;
   note?: string;
   addedAt: string;
@@ -155,11 +157,17 @@ export async function watchProperty(query: string, note?: string, options: { all
     };
   }
   const id = data.ids?.bfe ?? data.ids?.addressId ?? data.ids?.houseNumberId ?? query;
-  const existing = entries.find((entry) => entry.id === id);
+  const addressId = data.ids?.addressId;
+  const existing = entries.find(
+    (entry) => entry.id === id || (addressId !== undefined && (entry.id === addressId || entry.addressId === addressId)),
+  );
   if (existing) {
     // Watching again must not move the baseline, or changes since then would never be reported.
-    const updated = { ...existing, note: note ?? existing.note };
-    if (note !== undefined) writeWatchlist(entries.map((item) => (item.id === id ? updated : item)));
+    // An entry added without a Datafordeleren key is keyed by address; it takes the BFE once there is one.
+    const updated = { ...existing, id, addressId: addressId ?? existing.addressId, note: note ?? existing.note };
+    if (note !== undefined || updated.id !== existing.id || updated.addressId !== existing.addressId) {
+      writeWatchlist(entries.map((item) => (item === existing ? updated : item)));
+    }
     return {
       watching: existing.designation ?? query,
       id,
@@ -172,6 +180,7 @@ export async function watchProperty(query: string, note?: string, options: { all
   const entry: WatchEntry = {
     id,
     designation: data.ids?.designation,
+    ...(addressId ? { addressId } : {}),
     query,
     note,
     addedAt: new Date().toISOString(),
@@ -196,7 +205,11 @@ export function unwatchProperty(idOrQuery: string) {
   }
   const needle = idOrQuery.trim().toLowerCase();
   const keep = entries.filter(
-    (entry) => entry.id !== idOrQuery && entry.query.toLowerCase() !== needle && entry.designation?.toLowerCase() !== needle,
+    (entry) =>
+      entry.id !== idOrQuery.trim() &&
+      entry.addressId !== idOrQuery.trim().toLowerCase() &&
+      entry.query.toLowerCase() !== needle &&
+      entry.designation?.toLowerCase() !== needle,
   );
   writeWatchlist(keep);
   return { removed: entries.length - keep.length, remaining: keep.length };
@@ -235,7 +248,8 @@ export async function checkWatchlist(options: { update?: boolean } = {}) {
       const snapshot = snapshotOf(data);
       const changes = data.idsResult.status === "ok" ? diffSnapshots(entry.snapshot, snapshot) : [];
       results.push({ designation: entry.designation ?? entry.query, since: entry.snapshot.takenAt, changes });
-      next.push(update && data.idsResult.status === "ok" ? { ...entry, snapshot } : entry);
+      const upgraded = data.ids?.bfe && entry.id !== data.ids.bfe ? { id: data.ids.bfe, addressId: data.ids.addressId ?? entry.addressId } : {};
+      next.push(update && data.idsResult.status === "ok" ? { ...entry, ...upgraded, snapshot } : entry);
     } catch (error) {
       results.push({ designation: entry.designation ?? entry.query, since: entry.snapshot.takenAt, error: error instanceof Error ? error.message : String(error) });
       next.push(entry);

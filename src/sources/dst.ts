@@ -298,8 +298,13 @@ const MARKET_CATEGORY: Record<MarketCategory, { index: string; sales: string; la
 };
 
 /** Maps a BBR usage code (and condominium flag) to Statistikbanken's property category. */
-export function marketCategoryFor(usageCode: string | undefined, isCondominium = false): MarketCategory {
-  if (isCondominium || usageCode === "140") return "apartment";
+/**
+ * The Statistikbanken series for the property's main use. Undefined for commercial and public buildings,
+ * which have no regional price series: house prices would say nothing about a school or an office.
+ */
+export function marketCategoryFor(usageCode: string | undefined, isCondominium = false): MarketCategory | undefined {
+  if (usageCode && !/^(1\d\d|510)$/.test(usageCode)) return undefined;
+  if (usageCode === "140" || (isCondominium && (!usageCode || usageCode.startsWith("1")))) return "apartment";
   if (usageCode === "510") return "summer_house";
   return "house";
 }

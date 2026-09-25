@@ -127,27 +127,38 @@ const DOOR = /^(th|tv|mf|\d{1,3}|[a-zæøå]\d{0,3})\.?$/i;
  */
 export function parseDesignation(text: string): ParsedAddress {
   const tokens = text.normalize("NFC").replace(/,/g, " , ").split(/\s+/).filter(Boolean);
-  const numberAt = tokens.findIndex((token, index) => index > 0 && (HOUSE_NUMBER.test(token) || HOUSE_RANGE.test(token)));
+  // A house number follows the street directly. After a comma, or four digits followed by a town, it is a postcode
+  // ("Egeskovvej, 8800 Viborg", "Skernvej 8000 Aarhus C").
+  const isPostcode = (index: number) =>
+    /^\d{4}$/.test(tokens[index]!) &&
+    (tokens[index - 1] === "," || /^\p{L}{2,}/u.test(tokens[index + 1] ?? "") || index === tokens.length - 1);
+  const numberAt = tokens.findIndex(
+    (token, index) => index > 0 && tokens[index - 1] !== "," && (HOUSE_NUMBER.test(token) || HOUSE_RANGE.test(token)) && !isPostcode(index),
+  );
+  let i: number;
+  const result: ParsedAddress = {};
   if (numberAt === -1) {
-    const street = tokens.filter((token) => token !== ",").join(" ");
-    return { street: street || undefined };
+    // No house number: the street runs to the first comma or postcode ("Egeskovvej, 8800 Viborg").
+    let end = tokens.findIndex((token, index) => index > 0 && (token === "," || isPostcode(index)));
+    if (end === -1) end = tokens.length;
+    const street = tokens.slice(0, end).join(" ");
+    if (street) result.street = street;
+    i = end;
+  } else {
+    result.street = tokens.slice(0, numberAt).filter((token) => token !== ",").join(" ");
+    const numberToken = tokens[numberAt]!;
+    const range = numberToken.match(HOUSE_RANGE);
+    result.houseNumber = (range?.[1] ?? numberToken).toUpperCase();
+    if (range) result.houseNumberRange = numberToken.toUpperCase();
+    i = numberAt + 1;
   }
-  const street = tokens.slice(0, numberAt).filter((token) => token !== ",").join(" ");
-  const numberToken = tokens[numberAt]!;
-  const range = numberToken.match(HOUSE_RANGE);
-  const result: ParsedAddress = {
-    street,
-    houseNumber: (range?.[1] ?? numberToken).toUpperCase(),
-    ...(range ? { houseNumberRange: numberToken.toUpperCase() } : {}),
-  };
 
-  let i = numberAt + 1;
   const skipCommas = () => {
     while (tokens[i] === ",") i += 1;
   };
   skipCommas();
   // Floor and door, when the next token looks like one and is not a postcode.
-  if (tokens[i] && FLOOR.test(tokens[i]!) && !/^\d{4}$/.test(tokens[i]!)) {
+  if (result.houseNumber && tokens[i] && FLOOR.test(tokens[i]!) && !/^\d{4}$/.test(tokens[i]!)) {
     result.floor = tokens[i]!.replace(/\.$/, "").toLowerCase();
     i += 1;
     if (/^sal\.?$/i.test(tokens[i] ?? "")) i += 1;
@@ -284,12 +295,23 @@ export function spellingVariants(query: string): string[] {
 
 /** Keeps letters, digits and the separators the search understands. Emoji and symbols only make it miss. */
 export function cleanQuery(query: string): string {
-  return query
-    .normalize("NFC")
-    .replace(/[^\p{L}\p{N}\s.,\-/']/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, MAX_QUERY_LENGTH);
+  return (
+    query
+      .normalize("NFC")
+      // "c/o Hansen, Egeskovvej 41": the recipient is not part of the address.
+      .replace(/(^|,)\s*c\/o\s[^,]*,/gi, "$1")
+      // "the house at Nyhavn 18 in Copenhagen", "huset på Nyhavn 18 i København".
+      .replace(/^\s*(the\s+)?(house|flat|apartment|property|home|building|villa)\s+(at|on|in)\s+/i, "")
+      .replace(/^\s*(huset|lejligheden|ejendommen|villaen|boligen)\s+(på|i)\s+/i, "")
+      .replace(/\s+(in|i)\s+(?=[A-ZÆØÅ][\p{L}. ]*$)/u, ", ")
+      .replace(/[^\p{L}\p{N}\s.,\-/']/gu, " ")
+      // "egeskovvej41" -> "egeskovvej 41"; "2.tv" -> "2. tv".
+      .replace(/(\p{L}{3,})(\d)/gu, "$1 $2")
+      .replace(/(\d)\.(?=\p{L})/gu, "$1. ")
+      .replace(/\s+/g, " ")
+      .replace(/^[\s,]+|[\s,]+$/g, "")
+      .slice(0, MAX_QUERY_LENGTH)
+  );
 }
 
 const words = (text: string) =>

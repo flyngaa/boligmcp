@@ -6,7 +6,8 @@ import { buildFlags } from "../src/analysis/flags.js";
 import { resetConfigForTests } from "../src/config.js";
 import { safeUrl } from "../src/lib/http.js";
 import { repairMojibake } from "../src/lib/text.js";
-import { matchWarning, normalizeId } from "../src/resolve.js";
+import { looksForeign, matchWarning, normalizeId } from "../src/resolve.js";
+import { marketCategoryFor } from "../src/sources/dst.js";
 import { cleanQuery, danishSpelling, mapSearchHit, parseDesignation, rerank, spellingVariants } from "../src/sources/adressevaelger.js";
 import { graphqlLiteral } from "../src/sources/datafordeler/client.js";
 import { mapValuationRows, realDate, sortBuildings } from "../src/sources/datafordeler/registers.js";
@@ -195,9 +196,21 @@ describe("flags", () => {
     expect(flags.find((flag) => flag.id === "listed_building")?.detail).toBe("Nyhavn 18");
   });
 
-  it("leaves heritage unmarked when no building has the property's address", () => {
-    const items = markAtProperty([{ address: "Egeskov Gade 1", listed: true }], ["Egeskov Gade 18, 5772 Kværndrup"]);
-    expect(items[0]?.atProperty).toBeUndefined();
+  it("does not count neighbours in a town when FBB has no entry for the property's address", () => {
+    // Slotsgaden 5, Møgeltønder: the listed houses around it are not the property.
+    const items = markAtProperty(
+      [
+        { address: "Slotsgaden 8", listed: true, point: { x: 480010, y: 6093010 } } as never,
+        { address: "Slotsgaden 6A", listed: true, point: { x: 480005, y: 6092995 } } as never,
+      ],
+      ["Slotsgaden 5, Møgeltønder, 6270 Tønder"],
+      [{ x: 480000, y: 6093000 }],
+    );
+    expect(items.map((item) => item.atProperty)).toEqual([false, false]);
+  });
+
+  it("leaves heritage unmarked only when nothing is known about the property", () => {
+    expect(markAtProperty([{ address: "Nyhavn 20", listed: true }], [])[0]?.atProperty).toBeUndefined();
   });
 });
 
@@ -256,7 +269,7 @@ describe("heritage on an estate", () => {
         { address: "Egeskov Gade 4", saveValue: 4, point: { x: 594722, y: 6114700 } } as never,
       ],
       ["Egeskov Gade 18, 5772 Kværndrup"],
-      [{ x: 594905, y: 6115380 }],
+      [{ x: 594905, y: 6115380 }, { x: 594798, y: 6115492 }, { x: 594650, y: 6115600 }],
     );
     expect(items).toEqual([
       { address: "Egeskov Gade 26", listed: true, atProperty: true },
@@ -333,5 +346,65 @@ describe("sale and flags on multi-unit properties", () => {
     const valuation = mapValuationRows("1", [{ id: 965000000000001, aar: 2020, ejendomvaerdiBeloeb: 463000000, grundvaerdiBeloeb: 1 }]);
     const flag = buildFlags({ valuation, buildings: [{ usageCode: "420" }] }).find((item) => item.id === "valuation_old_only");
     expect(flag?.severity).toBe("info");
+  });
+});
+
+describe("round 4", () => {
+  it("cleans queries people paste", () => {
+    expect(cleanQuery("c/o Hansen, Egeskovvej 41, 8800 Viborg")).toBe("Egeskovvej 41, 8800 Viborg");
+    expect(cleanQuery("the house at Nyhavn 18 in Copenhagen")).toBe("Nyhavn 18, Copenhagen");
+    expect(cleanQuery("egeskovvej41 viborg")).toBe("egeskovvej 41 viborg");
+    expect(cleanQuery("Istedgade 60, 2.tv, 1650 København V")).toBe("Istedgade 60, 2. tv, 1650 København V");
+    expect(cleanQuery("H.C. Andersens Boulevard 2")).toBe("H.C. Andersens Boulevard 2");
+  });
+
+  it("reads a postcode after a comma, before a town or at the end as a postcode, not a house number", () => {
+    expect(parseDesignation("Egeskovvej, 8800 Viborg")).toEqual({ street: "Egeskovvej", postalCode: "8800", postalName: "Viborg" });
+    expect(parseDesignation("Skernvej 8000 Aarhus C")).toEqual({ street: "Skernvej", postalCode: "8000", postalName: "Aarhus C" });
+    expect(parseDesignation("Vesterhavsvej 12 6960")).toEqual({ street: "Vesterhavsvej", houseNumber: "12", postalCode: "6960" });
+  });
+
+  it("recognises addresses outside Denmark", () => {
+    for (const query of ["Aqqusinersuaq 1, 3900 Nuuk", "Tinghúsvegur 1, 100 Tórshavn", "Große Straße 1, 24937 Flensburg", "Stortorget 1, 211 22 Malmö"]) {
+      expect(looksForeign(query)).toBe(true);
+    }
+    for (const query of ["Nyhavn 18, 1051 København K", "Istedgade 50, 3. th, 1650 København V", "Nyhavn 180"]) {
+      expect(looksForeign(query)).toBe(false);
+    }
+  });
+
+  it("has no house-price series for commercial and public buildings", () => {
+    expect(marketCategoryFor("420")).toBeUndefined();
+    expect(marketCategoryFor("320", true)).toBeUndefined();
+    expect(marketCategoryFor("120")).toBe("house");
+    expect(marketCategoryFor(undefined, true)).toBe("apartment");
+    expect(marketCategoryFor("510")).toBe("summer_house");
+  });
+
+  it("writes a plan code once, next to a readable text", () => {
+    const flags = buildFlags({
+      site: {
+        items: [
+          { category: "noise_affected_area", label: "Støjbelastet areal", value: "23er058" },
+          { category: "noise_affected_area", label: "Støjbelastet areal", value: "23er058" },
+        ],
+        checkedLayers: 1,
+        failedLayers: [],
+      },
+    } as never);
+    expect(flags.find((flag) => flag.id === "noise_affected_area")?.detail).toBe("Udpeget i kommuneplanen (støjbelastet areal) [23er058]");
+  });
+
+  it("finds an entry added without a BFE again and gives it the BFE", async () => {
+    process.env.BOLIGMCP_WATCHLIST_FILE = join(mkdtempSync(join(tmpdir(), "boligmcp-watch-")), "watchlist.json");
+    let bfe: string | undefined;
+    vi.spyOn(report, "collectPropertyData").mockImplementation(async () => ({
+      idsResult: { status: "ok", source: "dar", fetchedAt: "", data: { bfe, addressId: "a1", designation: "Egeskovvej 41, 8800 Viborg" } },
+      ids: { bfe, addressId: "a1", designation: "Egeskovvej 41, 8800 Viborg" },
+    }));
+    await watchProperty("Egeskovvej 41, 8800 Viborg");
+    bfe = "3451459";
+    expect(await watchProperty("Egeskovvej 41, 8800 Viborg")).toMatchObject({ alreadyWatched: true, id: "3451459" });
+    expect(listWatchlist()).toEqual([expect.objectContaining({ id: "3451459" })]);
   });
 });

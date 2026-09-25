@@ -1,5 +1,5 @@
 import { buildFlags, flagInputFrom } from "../analysis/flags.js";
-import { collectPropertyData, summarize } from "./property-report.js";
+import { collectPropertyData, missingSources, summarize } from "./property-report.js";
 
 export const SCREEN_MAX_ADDRESSES = 25;
 const CONCURRENCY = 3;
@@ -41,6 +41,13 @@ export async function screenProperties(addresses: string[]) {
           ? Math.round(valuation.propertyValue / summary.dwellingArea)
           : undefined;
       const rights = flags.find((flag) => flag.id === "building_rights");
+      const unchecked = [
+        ...new Set(
+          missingSources(data)
+            .filter((item) => item.source !== "emodata" && item.reason !== "not_found")
+            .map((item) => `${item.source}: ${item.reason}`),
+        ),
+      ];
       return {
         query,
         designation: summary.designation,
@@ -71,6 +78,8 @@ export async function screenProperties(addresses: string[]) {
           info: flags.filter((flag) => flag.severity === "info").length,
         },
         flags: flags.filter((flag) => flag.severity !== "info").map((flag) => `${flag.severity}: ${flag.title}`),
+        // Few flags can mean a clean property or missing data; this tells them apart.
+        ...(unchecked.length ? { notChecked: unchecked } : {}),
       };
     } catch (error) {
       return { query, error: error instanceof Error ? error.message : String(error) };

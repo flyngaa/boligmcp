@@ -211,6 +211,7 @@ export async function collectPropertyData(
   const point = lookupPointFor(ids, buildings);
   const adminData = admin?.status === "ok" ? admin.data : undefined;
   const mainBuilding = buildings?.status === "ok" ? buildings.data.buildings.find((b) => !isOutbuilding(b.usageCode)) : undefined;
+  const marketCategory = marketCategoryFor(mainBuilding?.usageCode, ids?.isCondominium);
   const second = await Promise.allSettled([
     point ? getPlansAt(point.x, point.y, { lookupPoint: point.kind }) : Promise.resolve(undefined),
     point ? getSiteConditionsAt(point.x, point.y, { lookupPoint: point.kind }) : Promise.resolve(undefined),
@@ -224,12 +225,8 @@ export async function collectPropertyData(
     adminData?.parishCode && !skip.stats
       ? withDeadline(getParishStats(adminData.parishCode, adminData.parishName), STATS_DEADLINE_MS, statsTimeout)
       : Promise.resolve(undefined),
-    adminData?.landsdelName && !skip.stats
-      ? withDeadline(
-          getRegionalMarket(adminData.landsdelName, marketCategoryFor(mainBuilding?.usageCode, ids?.isCondominium)),
-          STATS_DEADLINE_MS,
-          statsTimeout,
-        )
+    adminData?.landsdelName && !skip.stats && marketCategory
+      ? withDeadline(getRegionalMarket(adminData.landsdelName, marketCategory), STATS_DEADLINE_MS, statsTimeout)
       : Promise.resolve(undefined),
     point
       ? getHeritageAt(point.x, point.y, { addresses: ids?.designation ? [ids.designation] : [], buildings: buildingPoints(buildings) })
@@ -346,6 +343,14 @@ export function missingSources(data: PropertyData): Array<{ source: string; reas
     data.heritage,
   ]) {
     collect(result);
+  }
+  // State land such as Christiansø is outside the cadastre: an address, but no property number.
+  if (data.ids && !data.ids.bfe && getConfig().datafordelerApiKey && data.idsResult.status === "ok") {
+    missing.push({
+      source: "matrikel",
+      reason: "not_found",
+      detail: "The address has no BFE (property number) in the registers, typically state land outside the cadastre. Parcels, valuation and sales do not exist for it.",
+    });
   }
   // Without a Datafordeleren key the address still resolves, but no BFE and nothing keyed on it.
   if (data.ids && !data.ids.bfe && !getConfig().datafordelerApiKey && !seen.has("dar:missing_credentials")) {

@@ -78,6 +78,18 @@ export function lastSale(trades: Trade[] | undefined): Trade | undefined {
   return priced.find((trade) => MARKET_SALE.test(trade.transferType ?? "")) ?? priced[0];
 }
 
+/** A plan code on its own ("23er058") says nothing; the value and details once each, or the layer name. */
+function siteDetail(hits: Array<{ value?: string; details?: string; label?: string }>): string {
+  const isCode = (text: string | undefined) => Boolean(text && /^[\w.-]+$/.test(text) && /\d/.test(text) && !/\s/.test(text));
+  const texts = hits.map((item) => {
+    const parts = [item.value, item.details].filter((part): part is string => Boolean(part) && !isCode(part));
+    const codes = [item.value, item.details].filter(isCode);
+    const text = parts.join(" · ") || `Udpeget i kommuneplanen${item.label ? ` (${item.label.toLowerCase()})` : ""}`;
+    return codes.length ? `${text} [${codes.join(", ")}]` : text;
+  });
+  return [...new Set(texts)].join("; ");
+}
+
 const kr = (value: number) => `${Math.round(value).toLocaleString("da-DK")} kr.`;
 const m2 = (value: number) => `${Math.round(value).toLocaleString("da-DK")} m²`;
 const pct = (value: number) => `${value.toLocaleString("da-DK", { maximumFractionDigits: 1 })} %`;
@@ -434,7 +446,7 @@ export function buildFlags(input: FlagInput): Flag[] {
       id: rule.category,
       severity: rule.severity,
       title: rule.title,
-      detail: hits.map((item) => [item.value, item.details].filter(Boolean).join(" · ") || item.label).join("; "),
+      detail: siteDetail(hits),
       sources: ["plandata"],
     });
   }

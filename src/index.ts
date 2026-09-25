@@ -41,14 +41,16 @@ const addressInput = {
     .describe("DAR address id or house-number id (houseNumberId) from search_address or resolve_property"),
 };
 
+/** Models often send the BFE as a number; both are accepted. */
 const bfeInput = z
-  .string()
-  .trim()
-  .regex(/^\d{1,12}$/, "BFE must be a whole number, e.g. 3451459")
-  .describe("BFE number (bestemt fast ejendom)");
+  .preprocess(
+    (value) => (typeof value === "number" && Number.isInteger(value) ? String(value) : value),
+    z.string().trim().regex(/^\d{1,12}$/, "BFE must be a whole number, e.g. 3451459"),
+  )
+  .describe("BFE number (bestemt fast ejendom), e.g. 3451459");
 
-async function resolveTarget(input: { query?: string; addressId?: string }): Promise<SourceResult<PropertyIds>> {
-  if (!input.query?.trim() && !input.addressId?.trim()) {
+async function resolveTarget(input: { query?: string; addressId?: string; bfe?: string }): Promise<SourceResult<PropertyIds>> {
+  if (!input.query?.trim() && !input.addressId?.trim() && !input.bfe) {
     return unavailable("adressevaelger", "not_found", "Provide query or addressId");
   }
   return resolveProperty(input);
@@ -96,7 +98,10 @@ export function createServer(): McpServer {
   server.tool(
     "search_address",
     "Search Danish addresses by free text using Adressevælgeren (DAWA replacement). Use before any property lookup.",
-    { query: z.string().min(2).describe("Free-text Danish address"), limit: z.number().int().min(1).max(20).optional() },
+    {
+      query: z.string().min(2).describe("Free-text Danish address"),
+      limit: z.number().int().min(1).max(20).optional().describe("Maximum number of hits (1–20, default 10)"),
+    },
     async ({ query, limit }) => {
       const result = await searchAddresses(query, limit ?? 10);
       if (result.status !== "unavailable" || result.reason !== "not_found") return asText(result);
@@ -107,8 +112,8 @@ export function createServer(): McpServer {
 
   server.tool(
     "resolve_property",
-    "Resolve a Danish address to DAR IDs, coordinates, cadastral IDs and BFE. For a flat that is a condominium, bfe is the flat's own and mainBfe the property holding the land. matchWarning says when the address found is not exactly the one asked for. Requires Datafordeleren for BFE.",
-    addressInput,
+    "Resolve a Danish address (or a BFE) to DAR IDs, coordinates, cadastral IDs and BFE. For a flat that is a condominium, bfe is the flat's own and mainBfe the property holding the land. matchWarning says when the address found is not exactly the one asked for. Requires Datafordeleren for BFE.",
+    { ...addressInput, bfe: bfeInput.optional() },
     async (input) => asText(await resolveTarget(input)),
   );
 
@@ -343,11 +348,10 @@ export function createServer(): McpServer {
       if (admin.status !== "ok") return asText(admin);
       const buildings = await buildingsFor(resolved.data);
       const usage = buildings.status === "ok" ? buildings.data.buildings[0]?.usageCode : undefined;
+      const category = marketCategoryFor(usage, resolved.data.isCondominium);
       const [parish, market] = await Promise.all([
         admin.data.parishCode ? getParishStats(admin.data.parishCode, admin.data.parishName) : Promise.resolve(undefined),
-        admin.data.landsdelName
-          ? getRegionalMarket(admin.data.landsdelName, marketCategoryFor(usage, resolved.data.isCondominium))
-          : Promise.resolve(undefined),
+        admin.data.landsdelName && category ? getRegionalMarket(admin.data.landsdelName, category) : Promise.resolve(undefined),
       ]);
       return asText(forAddress({ parish, market }, resolved.data));
     },
@@ -358,7 +362,7 @@ export function createServer(): McpServer {
     "Add a Danish address to the user's watchlist and save a snapshot (valuation, plans and proposals, BBR buildings, last sale, flags). Later, check_watchlist reports what changed. Watching a property again keeps its baseline.",
     {
       query: z.string().min(2).describe("Free-text Danish address"),
-      note: z.string().max(200).optional(),
+      note: z.string().max(200).optional().describe("Your own note for the entry, e.g. why it is watched"),
       allowMismatch: z
         .boolean()
         .optional()
@@ -387,7 +391,7 @@ export function createServer(): McpServer {
   server.tool(
     "unwatch_property",
     "Remove a property from the watchlist by its id from list_watchlist (BFE or address id) or the address text used when adding it.",
-    { id: z.string().min(1) },
+    { id: z.string().min(1).describe("The entry's id from list_watchlist (BFE or address id), or the address text used when adding it") },
     async ({ id }) => asText(unwatchProperty(id)),
   );
 
@@ -396,9 +400,10 @@ export function createServer(): McpServer {
     `Screen up to ${SCREEN_MAX_ADDRESSES} Danish addresses at once and return one comparable row per address: size, plot, heating, zone, new public valuation, valuation per m², building rights headroom and high/medium flags.`,
     {
       addresses: z
-        .array(z.string().min(2))
-        .min(1)
-        .max(SCREEN_MAX_ADDRESSES)
+        .preprocess(
+          (value) => (typeof value === "string" ? [value] : Array.isArray(value) ? value.map((item) => (typeof item === "number" ? String(item) : item)) : value),
+          z.array(z.string().min(2)).min(1).max(SCREEN_MAX_ADDRESSES),
+        )
         .describe("Free-text Danish addresses, or BFE numbers for properties without a street address"),
     },
     async ({ addresses }) => asText(await screenProperties(addresses)),

@@ -8,6 +8,17 @@
 - `get_energy_label` calls Energistyrelsen's `SearchEnergyLabelBFE` endpoint. It still needs the user's own EMOData agreement.
 
 ### Fixes
+- Heritage in towns counts only the property's own address; neighbours are `atProperty: false`. Distance is used only on spread-out estates, where each building claims its nearest FBB point within 25 m. Møgeltønder and Ribe flagged the listed houses next door.
+- A postcode after a comma, before a town or at the end is a postcode, not a house number: "Egeskovvej, 8800 Viborg" was read as no. 8800 and resolved to no. 1. A street without a number now asks for one and suggests some.
+- Queries are cleaned before searching and matching: "c/o …" lines, "the house at … in …", "egeskovvej41" and "2.tv".
+- Addresses outside Denmark (Greenland, the Faroes, abroad) are said to be out of scope instead of pointing to a BFE lookup.
+- Suggestions search around the requested number, not just the first 20 on the street.
+- `screen_properties` rows list `notChecked` sources, so a missing key no longer looks like a clean property.
+- `bfe` is accepted as a number, `screen_properties` accepts a single address string, and `resolve_property` takes `bfe`. Every tool parameter has a description.
+- No regional house-price statistics for commercial and public buildings, which have no such series.
+- An address with no BFE (state land such as Christiansø) says so under `missing`.
+- Site-condition flags write a plan code once, next to readable text ("23er058; 23er058" before).
+- A watchlist entry added without a Datafordeleren key is found again and takes the BFE as id once there is one, instead of being added twice.
 - `matchWarning` also catches another street ("Bassin 7, Aarhus" found Bassinvej 7, Rødby), a town that was not found ("Sankt Knuds Torv 1, Odense" is in Aarhus) and a range of numbers ("41-43").
 - A town given without postcode is looked up in DAGI and searched again with its postcodes: "Torvet 1 Ærøskøbing" found Frederiksværk before.
 - Addresses are parsed as people type them: floor and door without commas ("Istedgade 50 3 th"), "1 sal", ranges and towns. "aa" is kept in town names (Aabybro) and "å" tried second.

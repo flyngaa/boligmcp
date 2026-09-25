@@ -10,8 +10,10 @@ const ENDPOINT = "https://www.kulturarv.dk/geoserver/wfs";
 const LAYERS = ["fbb:view_bygning_alle", "fbb:view_bygning_fredede"] as const;
 /** Margin around the property's buildings. The FBB point sits on the building, not on the address. */
 const HALF_M = 50;
-/** An FBB point this close to one of the property's BBR buildings is that building. */
-const NEAR_M = 40;
+/** On an estate, the FBB point nearest one of the property's buildings, and this close, is that building. */
+const NEAR_M = 25;
+/** Buildings spread wider than this make an estate or campus, where FBB files buildings under other numbers. */
+const ESTATE_SPAN_M = 60;
 /** Wider than this (a big estate far apart), only the main building's surroundings are searched. */
 const MAX_SPAN_M = 1500;
 
@@ -95,15 +97,31 @@ export function markAtProperty(
   buildings: Point[] = [],
 ): HeritageBuilding[] {
   const own = new Set(addresses.map(buildingKey).filter(Boolean));
-  const near = (point: Point | undefined) =>
-    Boolean(point && buildings.some((b) => Math.hypot(b.x - point.x, b.y - point.y) <= NEAR_M));
   const byAddress = (item: HeritageBuilding) => own.has(buildingKey(item.address));
   const strip = ({ point: _point, ...item }: HeritageBuilding & { point?: Point }) => item;
-  // The address decides when FBB has it: terraced houses stand within metres of their neighbours.
-  if (own.size && items.some(byAddress)) return items.map((item) => ({ ...strip(item), atProperty: byAddress(item) }));
-  // Otherwise distance to the property's own buildings; FBB files an estate's buildings under other house numbers.
-  if (buildings.length) return items.map((item) => ({ ...strip(item), atProperty: near(item.point) }));
-  return items.map(strip);
+  if (!own.size && !buildings.length) return items.map(strip);
+  // In a town the address decides: terraced houses stand within metres of their neighbours.
+  const xs = buildings.map((b) => b.x);
+  const ys = buildings.map((b) => b.y);
+  const spread = buildings.length > 1 ? Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) : 0;
+  const nearest = new Set<number>();
+  if (spread > ESTATE_SPAN_M) {
+    // On an estate FBB files buildings under other numbers: each building claims its nearest FBB point.
+    for (const building of buildings) {
+      let best = -1;
+      let bestDistance = Number.POSITIVE_INFINITY;
+      items.forEach((item, index) => {
+        if (!item.point) return;
+        const distance = Math.hypot(item.point.x - building.x, item.point.y - building.y);
+        if (distance < bestDistance) {
+          best = index;
+          bestDistance = distance;
+        }
+      });
+      if (best >= 0 && bestDistance <= NEAR_M) nearest.add(best);
+    }
+  }
+  return items.map((item, index) => ({ ...strip(item), atProperty: byAddress(item) || nearest.has(index) }));
 }
 
 export async function getHeritageAt(

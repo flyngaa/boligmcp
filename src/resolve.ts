@@ -60,7 +60,8 @@ function townMatches(town: string, found: ParsedAddress): boolean {
  */
 export function matchWarning(query: string, found: string | undefined, hits: AddressMatch[] = []): string | undefined {
   if (!found) return undefined;
-  const asked = parseDesignation(query);
+  // Compare what the search saw, not "c/o" lines or "the house at …".
+  const asked = parseDesignation(cleanQuery(query));
   const got = parseDesignation(found);
   const differences: string[] = [];
   if (asked.street && got.street && streetKey(asked.street) !== streetKey(got.street)) {
@@ -146,8 +147,16 @@ export async function suggestionsFor(query: string): Promise<string[]> {
       .slice(0, MAX_TOWN_POSTCODES)
       .map((item) => item.code);
   }
-  const searches = codes.length ? codes.map((code) => `${asked.street}, ${code}`) : [asked.street];
-  const results = await Promise.all(searches.slice(0, 4).map((text) => searchAddresses(text, 20)));
+  // The search matches number prefixes, so "Holstebrovej 10" lists 10, 100, 101 …; the street alone lists 1–20.
+  const number = asked.houseNumber?.match(/^\d+/)?.[0];
+  const prefixes = [number, number && number.length > 1 ? number.slice(0, -1) : undefined, ""].filter(
+    (value, index, all): value is string => value !== undefined && all.indexOf(value) === index,
+  );
+  const places = codes.length ? codes.slice(0, 4) : [undefined];
+  const searches = places.flatMap((code) =>
+    prefixes.map((prefix) => [`${asked.street}${prefix ? ` ${prefix}` : ""}`, code].filter(Boolean).join(", ")),
+  );
+  const results = await Promise.all(searches.slice(0, 9).map((text) => searchAddresses(text, 20)));
   const designations = results.flatMap((result) => (result.status === "ok" ? result.data : [])).map((hit) => hit.designation);
   const sameStreet = designations.filter(
     (text) => streetKey(parseDesignation(text).street) === streetKey(asked.street) && parseDesignation(text).houseNumber,
@@ -163,12 +172,40 @@ export async function suggestionsFor(query: string): Promise<string[]> {
   return [...new Set(sameStreet)].sort((a, b) => distance(a) - distance(b)).slice(0, 5);
 }
 
+/** Greenland (39xx), Faroese ("100 Tórshavn"), Swedish ("211 22") and German (5 digits) postcodes. */
+export function looksForeign(query: string): boolean {
+  return (
+    /(^|[\s,])39\d{2}(\s|$)/.test(query) ||
+    /(^|,)\s*\d{3}\s+\p{L}/u.test(query.replace(/^[^,]*\d[^,]*,/, ",")) ||
+    /(^|[\s,])\d{3}\s\d{2}(\s|$)/.test(query) ||
+    /(^|[\s,])\d{5}(\s|$)/.test(query) ||
+    /\b(nuuk|tórshavn|torshavn|flensburg|malmö|malmo|germany|sweden|deutschland|sverige|greenland|grønland|færøerne|faroe)\b/i.test(query)
+  );
+}
+
 async function notFound(query: string): Promise<SourceResult<PropertyIds>> {
+  if (looksForeign(query)) {
+    return unavailable(
+      "adressevaelger",
+      "not_found",
+      `No matches for "${query}". Only addresses in Denmark are covered, not Greenland, the Faroe Islands or other countries.`,
+    );
+  }
   const suggestions = await suggestionsFor(query).catch(() => []);
   const hint = suggestions.length
     ? ` Did you mean: ${suggestions.join("; ")}?`
     : " A property without a street address can be looked up by its BFE number (bfe).";
   return unavailable("adressevaelger", "not_found", `No matches for "${query}".${hint}`);
+}
+
+/** "Egeskovvej, 8800 Viborg": a street without a number is not one property. */
+async function needsHouseNumber(query: string, street: string): Promise<SourceResult<PropertyIds>> {
+  const suggestions = await suggestionsFor(query).catch(() => []);
+  return unavailable(
+    "adressevaelger",
+    "not_found",
+    `"${query}" names ${street} but no house number. Add one${suggestions.length ? `, e.g. ${suggestions.slice(0, 3).join("; ")}` : ""}.`,
+  );
 }
 
 async function resolveId(id: string): Promise<SourceResult<PropertyIds>> {
@@ -188,7 +225,7 @@ async function resolveId(id: string): Promise<SourceResult<PropertyIds>> {
 
 async function resolveHit(hit: AddressMatch, query: string): Promise<SourceResult<PropertyIds>> {
   // "Borgergade 1" can come back only as its basement flat; without a floor in the query, take the whole building.
-  const wantsUnit = Boolean(parseDesignation(query).floor);
+  const wantsUnit = Boolean(parseDesignation(cleanQuery(query)).floor);
   if (hit.addressId && (wantsUnit || !hit.floor || !hit.houseNumberId)) return resolveId(hit.addressId);
   if (!hit.houseNumberId) {
     return unavailable("adressevaelger", "not_found", `"${hit.designation}" is a street, not an address. Add a house number.`);
@@ -243,6 +280,7 @@ export async function resolveProperty(input: {
   const search = await searchAddresses(query, 5);
   if (search.status === "unavailable" && search.reason !== "not_found") return search as SourceResult<PropertyIds>;
   const asked = parseDesignation(cleanQuery(query));
+  if (asked.street && !asked.houseNumber && /\p{L}/u.test(asked.street)) return needsHouseNumber(query, asked.street);
   let best = search.status === "ok" ? search.data[0] : undefined;
   let hits = search.status === "ok" ? search.data : [];
   // A town named without its postcode that the first search ignored.
