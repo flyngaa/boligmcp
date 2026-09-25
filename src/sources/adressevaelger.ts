@@ -100,35 +100,74 @@ function inferType(hit: SearchHit): AddressMatch["type"] {
   return "other";
 }
 
-/**
- * Splits a designation such as "Istedgade 50, 1. th, 1650 København V" or "Egeskovvej 41, Hald Ege, 8800 Viborg".
- * The search API returns only this text for most hits, so floor, door and postcode come from here.
- */
-export function parseDesignation(text: string): {
+export interface ParsedAddress {
   street?: string;
+  /** First number of a range: "41-43" gives 41. */
   houseNumber?: string;
+  /** Set when the text gives a range of numbers ("41-43"). */
+  houseNumberRange?: string;
   floor?: string;
   door?: string;
   postalCode?: string;
   postalName?: string;
-} {
-  const parts = text.split(",").map((part) => part.trim()).filter(Boolean);
-  const head = parts[0]?.match(/^(.*?)\s+(\d+\s*[A-Za-zÆØÅæøå]?)$/);
-  const tail = parts.length > 1 ? parts[parts.length - 1]!.match(/^(\d{4})\s+(.+)$/) : null;
-  const unit = parts.slice(1, tail ? -1 : undefined).find((part) => FLOOR_RE.test(part));
-  const unitMatch = unit?.match(FLOOR_RE);
-  return {
-    street: head?.[1] ?? parts[0],
-    houseNumber: head?.[2]?.replace(/\s+/g, "").toUpperCase(),
-    floor: unitMatch?.[1]?.replace(/\.$/, "").toLowerCase(),
-    door: unitMatch?.[2]?.replace(/\.$/, "").toLowerCase() || undefined,
-    postalCode: tail?.[1],
-    postalName: tail?.[2],
-  };
+  /** Supplementary place name before the postcode ("Hald Ege"), or the town when no postcode is given. */
+  locality?: string;
 }
 
-/** "st", "kl", "1.", "12. th", "st. mf", "2. 3" */
-const FLOOR_RE = /^(st\.?|kl\d?\.?|k\d\.?|\d{1,2}\.?)(?:\s+(\S+))?$/i;
+const HOUSE_NUMBER = /^\d{1,4}[A-Za-zÆØÅæøå]?$/;
+const HOUSE_RANGE = /^(\d{1,4}[A-Za-zÆØÅæøå]?)-(\d{1,4}[A-Za-zÆØÅæøå]?)$/;
+const FLOOR = /^(st|kl|k\d|\d{1,2})\.?$/i;
+const DOOR = /^(th|tv|mf|\d{1,3}|[a-zæøå]\d{0,3})\.?$/i;
+
+/**
+ * Splits an address as people type it or as registers print it:
+ * "Istedgade 50, 3. th, 1650 København V", "Istedgade 50 3 th", "Istedgade 50, 1 sal",
+ * "Egeskovvej 41, Hald Ege, 8800 Viborg", "Egeskovvej 41 Odense", "Egeskovvej 41-43, 8800 Viborg".
+ * The search API returns only the printed form for most hits, so floor, door and postcode come from here.
+ */
+export function parseDesignation(text: string): ParsedAddress {
+  const tokens = text.normalize("NFC").replace(/,/g, " , ").split(/\s+/).filter(Boolean);
+  const numberAt = tokens.findIndex((token, index) => index > 0 && (HOUSE_NUMBER.test(token) || HOUSE_RANGE.test(token)));
+  if (numberAt === -1) {
+    const street = tokens.filter((token) => token !== ",").join(" ");
+    return { street: street || undefined };
+  }
+  const street = tokens.slice(0, numberAt).filter((token) => token !== ",").join(" ");
+  const numberToken = tokens[numberAt]!;
+  const range = numberToken.match(HOUSE_RANGE);
+  const result: ParsedAddress = {
+    street,
+    houseNumber: (range?.[1] ?? numberToken).toUpperCase(),
+    ...(range ? { houseNumberRange: numberToken.toUpperCase() } : {}),
+  };
+
+  let i = numberAt + 1;
+  const skipCommas = () => {
+    while (tokens[i] === ",") i += 1;
+  };
+  skipCommas();
+  // Floor and door, when the next token looks like one and is not a postcode.
+  if (tokens[i] && FLOOR.test(tokens[i]!) && !/^\d{4}$/.test(tokens[i]!)) {
+    result.floor = tokens[i]!.replace(/\.$/, "").toLowerCase();
+    i += 1;
+    if (/^sal\.?$/i.test(tokens[i] ?? "")) i += 1;
+    if (tokens[i] && DOOR.test(tokens[i]!) && !/^\d{4}$/.test(tokens[i]!)) {
+      result.door = tokens[i]!.replace(/\.$/, "").toLowerCase();
+      i += 1;
+    }
+  }
+  const rest = tokens.slice(i).filter((token) => token !== ",");
+  const postAt = rest.findIndex((token) => /^\d{4}$/.test(token));
+  if (postAt === -1) {
+    if (rest.length) result.locality = rest.join(" ");
+    return result;
+  }
+  if (postAt > 0) result.locality = rest.slice(0, postAt).join(" ");
+  result.postalCode = rest[postAt];
+  const name = rest.slice(postAt + 1).join(" ");
+  if (name) result.postalName = name;
+  return result;
+}
 
 export function mapSearchHit(hit: SearchHit): AddressMatch {
   const id = hit.id_lokalid ?? hit.id;
@@ -225,17 +264,22 @@ const CITY_ALIASES: Array<[RegExp, string]> = [
   [/\bH\.?\s?C\.?\s+(?=[A-ZÆØÅ])/g, "H.C. "],
 ];
 
-/** ASCII spellings of Danish letters: "Noerrebrogade" -> "Nørrebrogade", "Koebenhavn" -> "København". */
+/**
+ * ASCII spellings of Danish letters and common English or abbreviated names:
+ * "Noerrebrogade" -> "Nørrebrogade", "Koebenhavn" -> "København", "Copenhagen" -> "København".
+ * "aa" is left alone: towns such as Aabybro, Aabenraa and Aakirkeby keep it officially.
+ */
 export function danishSpelling(query: string): string {
   let text = query;
   for (const [pattern, replacement] of CITY_ALIASES) text = text.replace(pattern, replacement);
-  return text
-    .replace(/oe/g, "ø")
-    .replace(/Oe/g, "Ø")
-    .replace(/ae/g, "æ")
-    .replace(/Ae/g, "Æ")
-    .replace(/(?<!A)aa/g, "å")
-    .replace(/\bAa(?!rhus|lborg|benraa)/g, "Å");
+  return text.replace(/oe/g, "ø").replace(/Oe/g, "Ø").replace(/ae/g, "æ").replace(/Ae/g, "Æ");
+}
+
+/** The spellings to try when the text as typed finds nothing: with Danish letters, then also "aa" as "å". */
+export function spellingVariants(query: string): string[] {
+  const danish = danishSpelling(query);
+  const withAa = danish.replace(/aa/g, "å").replace(/\bAa/g, "Å");
+  return [...new Set([danish, withAa])].filter((variant) => variant !== query);
 }
 
 /** Keeps letters, digits and the separators the search understands. Emoji and symbols only make it miss. */
@@ -261,7 +305,7 @@ const words = (text: string) =>
  * the API's own order breaks ties.
  */
 export function rerank(query: string, hits: AddressMatch[]): AddressMatch[] {
-  const wanted = new Set([...words(query), ...words(danishSpelling(query))]);
+  const wanted = new Set([query, ...spellingVariants(query)].flatMap(words));
   const score = (hit: AddressMatch) => [...new Set(words(hit.designation))].filter((word) => wanted.has(word)).length;
   // Without a floor in the query, the building's own address beats a flat in it.
   const wantedFloor = parseDesignation(query).floor;
@@ -288,9 +332,9 @@ export async function searchAddresses(
     const cleaned = cleanQuery(query);
     if (cleaned.length < 2) return unavailable("adressevaelger", "not_found", `No matches for "${query}"`);
     let hits = await searchOnce(cleaned);
-    if (hits.length === 0) {
-      const respelled = danishSpelling(cleaned);
-      if (respelled !== cleaned) hits = await searchOnce(respelled);
+    for (const variant of spellingVariants(cleaned)) {
+      if (hits.length) break;
+      hits = await searchOnce(variant);
     }
     if (hits.length === 0) {
       return unavailable("adressevaelger", "not_found", `No matches for "${query}"`);

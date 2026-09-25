@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { listSourceStatus, SETUP_COMMAND } from "./catalog.js";
-import { resolveProperty } from "./resolve.js";
+import { resolveProperty, suggestionsFor } from "./resolve.js";
 import { lookupAddress, searchAddresses } from "./sources/adressevaelger.js";
 import {
   getAreaStatsForMunicipality,
@@ -97,7 +97,12 @@ export function createServer(): McpServer {
     "search_address",
     "Search Danish addresses by free text using Adressevælgeren (DAWA replacement). Use before any property lookup.",
     { query: z.string().min(2).describe("Free-text Danish address"), limit: z.number().int().min(1).max(20).optional() },
-    async ({ query, limit }) => asText(await searchAddresses(query, limit ?? 10)),
+    async ({ query, limit }) => {
+      const result = await searchAddresses(query, limit ?? 10);
+      if (result.status !== "unavailable" || result.reason !== "not_found") return asText(result);
+      const suggestions = await suggestionsFor(query).catch(() => []);
+      return asText(suggestions.length ? { ...result, suggestions } : result);
+    },
   );
 
   server.tool(
@@ -303,11 +308,11 @@ export function createServer(): McpServer {
 
   server.tool(
     "property_report",
-    "Build a combined report for a Danish address with investor flags (asbestos, fossil heating, area composition, building rights headroom, plan proposals, flood/noise/groundwater, tenancy, drainage). Marks missing sources. summary.matchWarning says when the address found is not exactly the one asked for.",
-    addressInput,
+    "Build a combined report for a Danish address or BFE with investor flags (asbestos, fossil heating, area composition, building rights headroom, plan proposals, flood/noise/groundwater, tenancy, drainage). Marks missing sources. summary.matchWarning says when the address found is not exactly the one asked for. Use bfe for a property without a street address.",
+    { ...addressInput, bfe: bfeInput.optional() },
     async (input) => {
-      if (!input.query?.trim() && !input.addressId?.trim()) {
-        return asText({ error: "Provide query or addressId" });
+      if (!input.query?.trim() && !input.addressId?.trim() && !input.bfe) {
+        return asText({ error: "Provide query, addressId or bfe" });
       }
       return asText(await buildPropertyReport(input));
     },
@@ -351,8 +356,15 @@ export function createServer(): McpServer {
   server.tool(
     "watch_property",
     "Add a Danish address to the user's watchlist and save a snapshot (valuation, plans and proposals, BBR buildings, last sale, flags). Later, check_watchlist reports what changed. Watching a property again keeps its baseline.",
-    { query: z.string().min(2).describe("Free-text Danish address"), note: z.string().max(200).optional() },
-    async ({ query, note }) => asText(await watchProperty(query, note)),
+    {
+      query: z.string().min(2).describe("Free-text Danish address"),
+      note: z.string().max(200).optional(),
+      allowMismatch: z
+        .boolean()
+        .optional()
+        .describe("Watch the address found even when it is not exactly the one asked for (another floor, door or town)"),
+    },
+    async ({ query, note, allowMismatch }) => asText(await watchProperty(query, note, { allowMismatch })),
   );
 
   server.tool(
@@ -387,7 +399,7 @@ export function createServer(): McpServer {
         .array(z.string().min(2))
         .min(1)
         .max(SCREEN_MAX_ADDRESSES)
-        .describe("Free-text Danish addresses"),
+        .describe("Free-text Danish addresses, or BFE numbers for properties without a street address"),
     },
     async ({ addresses }) => asText(await screenProperties(addresses)),
   );

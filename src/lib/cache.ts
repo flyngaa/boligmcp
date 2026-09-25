@@ -47,6 +47,9 @@ export function cacheSet(key: string, value: unknown, ttlSeconds: number): void 
     .run(key, JSON.stringify(value), expiresAt);
 }
 
+/** Loads in progress. Parallel reports ask for the same statistics and registers; one request serves them all. */
+const pending = new Map<string, Promise<unknown>>();
+
 export async function cached<T>(
   key: string,
   ttlSeconds: number,
@@ -54,9 +57,34 @@ export async function cached<T>(
 ): Promise<T> {
   const hit = cacheGet<T>(key);
   if (hit !== undefined) return hit;
-  const value = await loader();
-  cacheSet(key, value, ttlSeconds);
-  return value;
+  const inFlight = pending.get(key);
+  if (inFlight) return inFlight as Promise<T>;
+  const load = (async () => {
+    const value = await loader();
+    cacheSet(key, value, ttlSeconds);
+    return value;
+  })().finally(() => pending.delete(key));
+  pending.set(key, load);
+  return load;
+}
+
+/** Runs at most `max` tasks at a time; the rest wait their turn. */
+export function limiter(max: number): <T>(task: () => Promise<T>) => Promise<T> {
+  let active = 0;
+  const queue: Array<() => void> = [];
+  const next = () => {
+    active -= 1;
+    queue.shift()?.();
+  };
+  return async <T>(task: () => Promise<T>) => {
+    if (active >= max) await new Promise<void>((resolve) => queue.push(resolve));
+    active += 1;
+    try {
+      return await task();
+    } finally {
+      next();
+    }
+  };
 }
 
 export function resetCacheForTests(): void {

@@ -181,3 +181,37 @@ export async function queryNodes(
   const data = await graphql<Record<string, unknown>>(register, query, {}, cacheKey, 86_400, options.auth);
   return extractNodes(data, entity);
 }
+
+/** Every row of an entity, page by page (the service returns at most 1000 per request). */
+export async function queryAllNodes(
+  register: DatafordelerRegister,
+  entity: string,
+  fields: string,
+  where: Record<string, unknown> = {},
+  maxPages = 10,
+): Promise<Array<Record<string, unknown>>> {
+  const rows: Array<Record<string, unknown>> = [];
+  let after: string | undefined;
+  for (let page = 0; page < maxPages; page += 1) {
+    const query = `
+      query {
+        ${entity}(
+          first: 1000
+          virkningstid: "${nowIso()}"
+          registreringstid: "${nowIso()}"
+          ${Object.keys(where).length ? `where: ${graphqlLiteral(where)}` : ""}
+          ${after ? `after: ${JSON.stringify(after)}` : ""}
+        ) {
+          pageInfo { hasNextPage endCursor }
+          nodes { ${fields} }
+        }
+      }
+    `;
+    const data = await graphql<Record<string, { pageInfo?: { hasNextPage?: boolean; endCursor?: string } }>>(register, query);
+    rows.push(...extractNodes(data, entity));
+    const info = data[entity]?.pageInfo;
+    if (!info?.hasNextPage || !info.endCursor) break;
+    after = info.endCursor;
+  }
+  return rows;
+}

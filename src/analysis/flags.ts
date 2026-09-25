@@ -24,6 +24,8 @@ export interface FlagInput {
   footprints?: Footprint[];
   buildings?: Building[];
   units?: Unit[];
+  /** All units when `units` is only the first of many. */
+  unitsTotal?: number;
   ground?: Ground;
   parcels?: Parcel[];
   valuation?: Valuation;
@@ -34,7 +36,7 @@ export interface FlagInput {
 }
 
 export function flagInputFrom(results: {
-  buildings?: SourceResult<{ buildings: Building[]; units: Unit[]; ground?: Ground }>;
+  buildings?: SourceResult<{ buildings: Building[]; units: Unit[]; ground?: Ground; unitsTotal?: number }>;
   parcel?: SourceResult<Parcel[]>;
   valuation?: SourceResult<Valuation>;
   plans?: SourceResult<PlanInfo>;
@@ -50,6 +52,7 @@ export function flagInputFrom(results: {
   return {
     buildings: bbr?.buildings,
     units: bbr?.units,
+    unitsTotal: bbr?.unitsTotal,
     ground: bbr?.ground,
     parcels: data(results.parcel),
     valuation: data(results.valuation),
@@ -61,6 +64,18 @@ export function flagInputFrom(results: {
     terrain: data(results.terrain),
     footprints: data(results.footprints),
   };
+}
+
+/** Transfer types that are sales between independent parties, so the price says something about the market. */
+const MARKET_SALE = /fri handel/i;
+
+/**
+ * The latest sale with a price, preferring market sales. Family transfers, forced sales and other
+ * non-market prices are used only when there is no market sale.
+ */
+export function lastSale(trades: Trade[] | undefined): Trade | undefined {
+  const priced = (trades ?? []).filter((trade) => (trade.price ?? 0) > 0);
+  return priced.find((trade) => MARKET_SALE.test(trade.transferType ?? "")) ?? priced[0];
 }
 
 const kr = (value: number) => `${Math.round(value).toLocaleString("da-DK")} kr.`;
@@ -188,7 +203,8 @@ export function buildFlags(input: FlagInput): Flag[] {
     }
   }
 
-  // Area composition
+  // Area composition: one flag for the property, not one per building.
+  const composition: string[] = [];
   for (const building of buildings.filter((b) => !isOutbuilding(b.usageCode))) {
     const floors = building.floorDetails ?? [];
     const attic = floors.reduce((sum, floor) => sum + (floor.usedAtticArea ?? 0), 0);
@@ -207,15 +223,17 @@ export function buildFlags(input: FlagInput): Flag[] {
           : `kælder på ${m2(basement)}, som ikke tæller med i boligarealet`,
       );
     }
-    if (parts.length) {
-      add({
-        id: "area_composition",
-        severity: "info",
-        title: "Sammensætning af arealet",
-        detail: `${building.usage ?? "Bygning"}: ${parts.join("; ")}.`,
-        sources: ["bbr"],
-      });
-    }
+    if (parts.length) composition.push(`${building.usage ?? "Bygning"}: ${parts.join("; ")}`);
+  }
+  if (composition.length) {
+    const shown = composition.slice(0, 3);
+    add({
+      id: "area_composition",
+      severity: "info",
+      title: "Sammensætning af arealet",
+      detail: `${shown.join(". ")}.${composition.length > shown.length ? ` Og ${composition.length - shown.length} bygning(er) mere med kælder eller tagetage.` : ""}`,
+      sources: ["bbr"],
+    });
   }
 
   // Listed / worth preserving
@@ -316,14 +334,15 @@ export function buildFlags(input: FlagInput): Flag[] {
     });
   }
 
-  // Tenure
+  // Tenure. With many units only the first ones are fetched, so the count says so.
+  const sample = input.unitsTotal ? ` (blandt de første ${input.units?.length ?? 0} af ${input.unitsTotal} enheder)` : "";
   const rented = (input.units ?? []).filter((unit) => unit.tenureCode === "1");
   if (rented.length) {
     add({
       id: "existing_tenancy",
       severity: "medium",
       title: "Enhed registreret som udlejet",
-      detail: `${rented.length} enhed(er) står som udlejet i BBR. Et køb overtager normalt de eksisterende lejeaftaler.`,
+      detail: `${rented.length} enhed(er)${sample} står som udlejet i BBR. Et køb overtager normalt de eksisterende lejeaftaler.`,
       sources: ["bbr"],
     });
   }
@@ -333,7 +352,7 @@ export function buildFlags(input: FlagInput): Flag[] {
       id: "unused_unit",
       severity: "info",
       title: "Enhed registreret som ikke benyttet",
-      detail: `${unused.length} enhed(er) står som ikke benyttet i BBR.`,
+      detail: `${unused.length} enhed(er)${sample} står som ikke benyttet i BBR.`,
       sources: ["bbr"],
     });
   }
@@ -558,9 +577,13 @@ export function buildFlags(input: FlagInput): Flag[] {
   }
 
   // Last sale
-  const sale = (input.trades ?? []).find((trade) => (trade.price ?? 0) > 0);
+  const sale = lastSale(input.trades);
   if (sale?.price) {
-    const area = input.units?.[0]?.dwellingArea ?? main?.dwellingArea;
+    // The price covers the whole property: one unit's area only when it is the only unit.
+    const area =
+      input.units?.length === 1
+        ? input.units[0]?.dwellingArea
+        : buildings.filter((b) => !isOutbuilding(b.usageCode)).reduce((sum, b) => sum + (b.dwellingArea ?? 0), 0) || undefined;
     add({
       id: "last_sale",
       severity: "info",
@@ -583,13 +606,19 @@ export function buildFlags(input: FlagInput): Flag[] {
       sources: ["vur"],
     });
   } else if (valuation?.latestOld) {
+    // Only owner-occupied homes have been valued in the new system so far; commercial property waits for its turn.
+    const home = /^1\d\d$/.test(main?.usageCode ?? "");
     add({
       id: "valuation_old_only",
-      severity: "medium",
+      severity: home ? "medium" : "info",
       title: "Kun vurdering fra det gamle system",
-      detail: `Seneste vurdering er fra ${valuation.latestOld.year}. Den siger lidt om dagens markedspris.${valuation.note ? ` ${valuation.note}` : ""}`,
+      detail: `Seneste vurdering er fra ${valuation.latestOld.year}. Den siger lidt om dagens markedspris.${
+        home ? "" : " Erhvervsejendomme og andre ejendomme uden ejerbolig er endnu ikke vurderet i det nye system."
+      }${valuation.note ? ` ${valuation.note}` : ""}`,
       sources: ["vur"],
     });
+  } else if (valuation?.note) {
+    add({ id: "valuation_zero", severity: "info", title: "Vurderet til 0 kr.", detail: valuation.note, sources: ["vur"] });
   }
 
   const order = { high: 0, medium: 1, info: 2 } as const;

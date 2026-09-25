@@ -1,6 +1,10 @@
 import { ttlFor } from "../catalog.js";
-import { cached } from "../lib/cache.js";
-import { fetchJson } from "../lib/http.js";
+import { cached, limiter } from "../lib/cache.js";
+import { fetchJson as rawFetchJson, type FetchJsonOptions } from "../lib/http.js";
+
+/** Statistikbanken slows down sharply under parallel load; a few requests at a time finish sooner. */
+const statbankSlot = limiter(4);
+const fetchJson = <T>(url: string, options?: FetchJsonOptions) => statbankSlot(() => rawFetchJson<T>(url, options));
 import { ok, unavailable, type AreaStat, type AreaStats, type SourceResult } from "../types.js";
 
 const BASE = "https://api.statbank.dk/v1/data";

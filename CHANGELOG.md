@@ -8,6 +8,17 @@
 - `get_energy_label` calls Energistyrelsen's `SearchEnergyLabelBFE` endpoint. It still needs the user's own EMOData agreement.
 
 ### Fixes
+- `matchWarning` also catches another street ("Bassin 7, Aarhus" found Bassinvej 7, Rødby), a town that was not found ("Sankt Knuds Torv 1, Odense" is in Aarhus) and a range of numbers ("41-43").
+- A town given without postcode is looked up in DAGI and searched again with its postcodes: "Torvet 1 Ærøskøbing" found Frederiksværk before.
+- Addresses are parsed as people type them: floor and door without commas ("Istedgade 50 3 th"), "1 sal", ranges and towns. "aa" is kept in town names (Aabybro) and "å" tried second.
+- A query that finds nothing suggests the nearest numbers on the same street ("Did you mean: Vestergade 1B, 8000 Aarhus C; …"), in `search_address` too.
+- `property_report` and `screen_properties` take a BFE, so properties without a street address get a report; their position is the parcel centroid.
+- The last sale prefers a market sale ("fri handel") over family transfers and similar; the summary carries `lastTradeType`. The price per m² is only given for a single unit or the property's dwelling area, not one unit of many.
+- Area composition is one flag for the property, not one per building (13 at Gudrunsvej 8).
+- A street address with no units of its own (a block of flats) shows its buildings' units, and tenure counts say when they are a sample.
+- A property valued at 0 kr. in every year gets a note and an info flag; the old-valuation flag is info, not medium, for commercial property, which the new system has not reached.
+- `watch_property` refuses an address that is not an exact match unless `allowMismatch` is set.
+- Parallel reports share identical requests while they are in flight, and Statistikbanken gets at most four at a time: 7 of 10 parallel reports lost their statistics before, none now.
 - Address lookups take the best search match. The resolver skipped house-number hits, so "Strandvejen 100 Hellerup" and "Rådhuspladsen 1" landed in Frederiksværk and "Nyhavn 18" in its basement flat.
 - A town given without a postcode ("Boulevarden 1 Aalborg") now ranks first, and ASCII or English spellings ("Noerrebrogade", "Koebenhavn", "Copenhagen", "HC Andersens Blvd") are tried when nothing matches. Emoji and symbols are stripped; queries are capped at 200 characters.
 - `matchWarning` says when the address found is not the one asked for: a floor or door that does not exist, another number, or the same address in other towns when no postcode was given. It used to swap in another flat silently.

@@ -26,7 +26,9 @@ export async function screenProperties(addresses: string[]) {
   const unique = [...new Set(addresses.map((item) => item.trim()).filter(Boolean))].slice(0, SCREEN_MAX_ADDRESSES);
   const rows = await mapLimited(unique, CONCURRENCY, async (query) => {
     try {
-      const data = await collectPropertyData({ query }, { stats: true, energy: true });
+      // A bare number is a BFE: properties without a street address can be screened too.
+      const input = /^\d{1,12}$/.test(query) ? { bfe: query } : { query };
+      const data = await collectPropertyData(input, { stats: true, energy: true });
       if (data.idsResult.status !== "ok") {
         return { query, error: data.idsResult.detail ?? data.idsResult.reason };
       }

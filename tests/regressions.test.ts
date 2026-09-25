@@ -7,7 +7,7 @@ import { resetConfigForTests } from "../src/config.js";
 import { safeUrl } from "../src/lib/http.js";
 import { repairMojibake } from "../src/lib/text.js";
 import { matchWarning, normalizeId } from "../src/resolve.js";
-import { cleanQuery, danishSpelling, mapSearchHit, parseDesignation, rerank } from "../src/sources/adressevaelger.js";
+import { cleanQuery, danishSpelling, mapSearchHit, parseDesignation, rerank, spellingVariants } from "../src/sources/adressevaelger.js";
 import { graphqlLiteral } from "../src/sources/datafordeler/client.js";
 import { mapValuationRows, realDate, sortBuildings } from "../src/sources/datafordeler/registers.js";
 import { markAtProperty } from "../src/sources/fbb.js";
@@ -38,7 +38,13 @@ describe("address search", () => {
       postalCode: "1650",
       postalName: "København V",
     });
-    expect(parseDesignation("Egeskovvej 41, Hald Ege, 8800 Viborg")).toMatchObject({ houseNumber: "41", floor: undefined, postalCode: "8800" });
+    expect(parseDesignation("Egeskovvej 41, Hald Ege, 8800 Viborg")).toEqual({
+      street: "Egeskovvej",
+      houseNumber: "41",
+      locality: "Hald Ege",
+      postalCode: "8800",
+      postalName: "Viborg",
+    });
     expect(parseDesignation("Nyhavn 18, kl., 1051 København K").floor).toBe("kl");
     const mapped = mapSearchHit({ type: "adresse", id: "a1", titel: "Istedgade 50, 1., 1650 København V", husnummerId: "h1" });
     expect(mapped).toMatchObject({ addressId: "a1", houseNumberId: "h1", floor: "1", door: null, houseNumber: "50", postalCode: "1650" });
@@ -256,5 +262,76 @@ describe("heritage on an estate", () => {
       { address: "Egeskov Gade 26", listed: true, atProperty: true },
       { address: "Egeskov Gade 4", saveValue: 4, atProperty: false },
     ]);
+  });
+});
+
+describe("addresses as people type them", () => {
+  it("reads floor and door without commas, 'sal', ranges and a town without postcode", () => {
+    expect(parseDesignation("Istedgade 50 3 th")).toMatchObject({ street: "Istedgade", houseNumber: "50", floor: "3", door: "th" });
+    expect(parseDesignation("Istedgade 50, 1 sal")).toEqual({ street: "Istedgade", houseNumber: "50", floor: "1" });
+    expect(parseDesignation("Egeskovvej 41-43, 8800 Viborg")).toMatchObject({ houseNumber: "41", houseNumberRange: "41-43" });
+    expect(parseDesignation("Bassin 7, Aarhus")).toMatchObject({ street: "Bassin", houseNumber: "7", locality: "Aarhus" });
+    expect(parseDesignation("Strandvejen 100 hellerup")).toEqual({ street: "Strandvejen", houseNumber: "100", locality: "hellerup" });
+    expect(parseDesignation("Nørrebrogade 1, kl. 2, 2200 København N")).toMatchObject({ floor: "kl", door: "2", postalCode: "2200" });
+  });
+
+  it("warns about another street, a town not found and a range", () => {
+    expect(matchWarning("Bassin 7, Aarhus", "Bassinvej 7, Bredfjed, 4970 Rødby")).toMatch(/vejnavnet Bassin blev til Bassinvej.*Aarhus blev ikke fundet/);
+    expect(matchWarning("Sankt Knuds Torv 1, Odense", "Skt. Knuds Torv 13, 8000 Aarhus C")).toMatch(/husnummer 1 blev til 13; Odense blev ikke fundet/);
+    expect(matchWarning("Egeskovvej 41-43, 8800 Viborg", "Egeskovvej 41, Hald Ege, 8800 Viborg")).toMatch(/41-43 er et interval/);
+    expect(matchWarning("Istedgade 50 3 th", "Istedgade 50, 1650 København V")).toMatch(/etage 3 findes ikke/);
+  });
+
+  it("accepts spelling variants of the same street and town", () => {
+    expect(matchWarning("Frederiksberg Allé 10, 1820 Frederiksberg C", "Frederiksberg Alle 10, 1820 Frederiksberg C")).toBeUndefined();
+    expect(matchWarning("Skt. Nicolaj Gade 1 Aabenraa", "Skt. Nicolaj Gade 1, 6200 Aabenraa")).toBeUndefined();
+    expect(matchWarning("Nyhavn 18 kbh", "Nyhavn 18, 1051 København K")).toBeUndefined();
+    expect(matchWarning("Lodbergsvej 10, Søndervig", "Lodbergsvej 10, Søndervig, 6950 Ringkøbing")).toBeUndefined();
+    expect(matchWarning("Noerrebrogade 1, 2200 Koebenhavn N", "Nørrebrogade 1, 2200 København N")).toBeUndefined();
+  });
+
+  it("keeps 'aa' town names and tries å as a second spelling", () => {
+    expect(danishSpelling("Oestergade 1, 9440 Aabybro")).toBe("Østergade 1, 9440 Aabybro");
+    expect(spellingVariants("Baadehavnsgade 1")).toEqual(["Bådehavnsgade 1"]);
+  });
+});
+
+describe("sale and flags on multi-unit properties", () => {
+  it("prefers a market sale over a later family transfer", () => {
+    expect(
+      report.lastSale([
+        { bfe: "1", date: "2020-01-01", price: 153000, transferType: "Familieoverdragelse" },
+        { bfe: "1", date: "2009-04-29", price: 900000, transferType: "Almindelig fri handel" },
+      ]),
+    ).toMatchObject({ price: 900000 });
+  });
+
+  it("does not divide a whole property's price by one unit's area", () => {
+    const flags = buildFlags({
+      trades: [{ bfe: "1", date: "2025-09-30", price: 73_476_618, transferType: "Almindelig fri handel" }],
+      buildings: [{ usageCode: "590", dwellingArea: null }],
+      units: [{ dwellingArea: 64 }, { dwellingArea: 80 }],
+    });
+    expect(flags.find((flag) => flag.id === "last_sale")?.detail).not.toMatch(/pr\. m²/);
+  });
+
+  it("merges area composition into one flag", () => {
+    const building = { usageCode: "140", floorDetails: [{ basementArea: 976 }] };
+    const flags = buildFlags({ buildings: Array.from({ length: 13 }, () => building) });
+    const composition = flags.filter((flag) => flag.id === "area_composition");
+    expect(composition).toHaveLength(1);
+    expect(composition[0]?.detail).toMatch(/Og 10 bygning\(er\) mere/);
+  });
+
+  it("explains a property valued at 0 kr. in every year", () => {
+    const valuation = mapValuationRows("100025920", [{ id: 965000000000001, aar: 2020, ejendomvaerdiBeloeb: 0, grundvaerdiBeloeb: 0 }]);
+    expect(valuation.note).toMatch(/Alle vurderinger er 0 kr/);
+    expect(buildFlags({ valuation }).find((flag) => flag.id === "valuation_zero")).toBeDefined();
+  });
+
+  it("does not rank an old valuation as medium for commercial property", () => {
+    const valuation = mapValuationRows("1", [{ id: 965000000000001, aar: 2020, ejendomvaerdiBeloeb: 463000000, grundvaerdiBeloeb: 1 }]);
+    const flag = buildFlags({ valuation, buildings: [{ usageCode: "420" }] }).find((item) => item.id === "valuation_old_only");
+    expect(flag?.severity).toBe("info");
   });
 });

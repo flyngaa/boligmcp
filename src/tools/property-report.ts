@@ -1,4 +1,4 @@
-import { buildFlags, flagInputFrom } from "../analysis/flags.js";
+import { buildFlags, flagInputFrom, lastSale } from "../analysis/flags.js";
 import { isOutbuilding } from "../lib/bbr-codes.js";
 import { lookupAddress } from "../sources/adressevaelger.js";
 import { getAreaStatsForMunicipality, getParishStats, getRegionalMarket, marketCategoryFor } from "../sources/dst.js";
@@ -172,7 +172,7 @@ const statsTimeout = () =>
 
 /** Fetches every source for one address. `skip` leaves out sources a caller does not need. */
 export async function collectPropertyData(
-  input: { query?: string; addressId?: string },
+  input: { query?: string; addressId?: string; bfe?: string },
   skip: { stats?: boolean; energy?: boolean; trades?: boolean; nearby?: boolean } = {},
 ): Promise<PropertyData> {
   const idsResult = await resolveProperty(input);
@@ -259,10 +259,7 @@ export async function collectPropertyData(
   };
 }
 
-/** The latest sale with a price. Transfers without one (inheritance, "Ikke oplyst") are not sales. */
-export function lastSale(trades: Trade[] | undefined): Trade | undefined {
-  return trades?.find((trade) => (trade.price ?? 0) > 0);
-}
+export { lastSale };
 
 export function summarize(data: PropertyData) {
   const { ids, buildings, valuation, trades, admin, plans, environment, energy, parcel, site } = data;
@@ -299,6 +296,7 @@ export function summarize(data: PropertyData) {
     landValue: (val?.latestNew ?? val?.latest)?.landValue,
     lastTrade: latestTrade?.price,
     lastTradeDate: latestTrade?.date,
+    lastTradeType: latestTrade?.transferType,
     zone: planItems.find((item) => item.type === "zone")?.zoneStatus,
     localPlans: plans?.status === "ok" ? planItems.filter((item) => item.type === "local_plan").length : undefined,
     // Some municipalities repeat the plan number in the name ("R24.B.4.16 - B4").
@@ -363,6 +361,7 @@ export function missingSources(data: PropertyData): Array<{ source: string; reas
 export async function buildPropertyReport(input: {
   query?: string;
   addressId?: string;
+  bfe?: string;
 }): Promise<unknown> {
   const data = await collectPropertyData(input);
   const summary = summarize(data);

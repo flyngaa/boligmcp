@@ -36,7 +36,8 @@ import {
   type Valuation,
   type ValuationEntry,
 } from "../../types.js";
-import { datafordelerUnavailable, queryNodes } from "./client.js";
+import { datafordelerUnavailable, queryAllNodes, queryNodes } from "./client.js";
+import { cached } from "../../lib/cache.js";
 import { getConfig } from "../../config.js";
 import { SETUP_COMMAND, setupHint } from "../../catalog.js";
 
@@ -296,6 +297,56 @@ async function parcelRowsFor(sfeId: string): Promise<Array<Record<string, unknow
   return [...byId.values()];
 }
 
+/** A point inside the property's land: the centroid of its first current parcel. For properties without buildings. */
+export async function parcelCentroidFor(bfe: string): Promise<{ x: number; y: number } | undefined> {
+  if (!hasKey()) return undefined;
+  const sfeId = await mainPropertyIdFor(bfe);
+  if (!sfeId) return undefined;
+  for (const parcel of (await parcelRowsFor(sfeId)).slice(0, 3)) {
+    const id = str(parcel.id_lokalId);
+    if (!id) continue;
+    const row = (await queryNodes("MAT", "MAT_Centroide", "geometri { wkt }", { jordstykkeLokalId: { eq: id } }, 1))[0];
+    const point = parseWktPoint(row?.geometri);
+    if (point) return point;
+  }
+  return undefined;
+}
+
+let postcodeList: Promise<Array<{ code: string; name: string }>> | undefined;
+
+/** Every Danish postcode with its name, from DAGI. Fetched once per process; it changes a few times a year. */
+async function postcodes(): Promise<Array<{ code: string; name: string }>> {
+  postcodeList ??= cached("dagi:postcodes:v1", 30 * 86_400, () =>
+    queryAllNodes("DAGI", "DAGI_Postnummerinddeling", "postnummer navn"),
+  )
+    .then((rows) =>
+      rows.flatMap((row) => {
+        const code = str(row.postnummer);
+        const name = str(row.navn);
+        return code && name ? [{ code, name }] : [];
+      }),
+    )
+    .catch((error) => {
+      postcodeList = undefined;
+      throw error;
+    });
+  return postcodeList;
+}
+
+/**
+ * Postcodes whose name is the town or starts with it: "Ærøskøbing" -> 5970, "Aarhus" -> 8000 Aarhus C, 8200 Aarhus N, ...
+ * The address search ignores a town given without its postcode, so the resolver retries with these.
+ */
+export async function postcodesForTown(town: string): Promise<Array<{ code: string; name: string }>> {
+  if (!hasKey()) return [];
+  const wanted = town.trim().toLowerCase();
+  if (wanted.length < 2) return [];
+  const all = await postcodes();
+  const exact = all.filter((item) => item.name.toLowerCase() === wanted);
+  if (exact.length) return exact;
+  return all.filter((item) => item.name.toLowerCase().startsWith(`${wanted} `)).sort((a, b) => a.code.localeCompare(b.code));
+}
+
 export async function getParcels(bfe: string): Promise<SourceResult<Parcel[]>> {
   if (!hasKey()) return datafordelerUnavailable("matrikel");
   try {
@@ -366,6 +417,7 @@ const UNIT_FIELDS = [
   "id_lokalId",
   "status",
   "bygning",
+  "adresseIdentificerer",
   "enh020EnhedensAnvendelse",
   "enh023Boligtype",
   "enh026EnhedensSamledeAreal",
@@ -452,7 +504,7 @@ function mapUnit(item: Record<string, unknown>, addressId: string | undefined): 
   return {
     unitId: str(item.id_lokalId),
     buildingId: str(item.bygning),
-    addressId,
+    addressId: str(item.adresseIdentificerer) ?? addressId,
     dwellingArea: num(item.enh027ArealTilBeboelse) ?? num(item.enh026EnhedensSamledeAreal),
     residentialArea: num(item.enh027ArealTilBeboelse),
     commercialArea: num(item.enh028ArealTilErhverv),
@@ -563,10 +615,11 @@ export async function getBuildingsAndUnits(args: {
 
     buildingRows = buildingRows.filter(isCurrentBbrRow);
 
-    // For a flat, its own units. For a whole building or property, the units in its main buildings.
+    // For a flat, its own units. For a whole building or property, or a building's street address that has
+    // no unit of its own (the flats hang on their floor addresses), the units in its main buildings.
     let unitRows = addressUnitRows;
     let unitsTotal: number | undefined;
-    if (!args.addressId) {
+    if (unitRows.length === 0) {
       const mainIds = buildingRows
         .filter((row) => !isOutbuilding(str(row.byg021BygningensAnvendelse)))
         .map((row) => str(row.id_lokalId))
@@ -683,12 +736,17 @@ export function mapValuationRows(bfe: string, rows: Array<Record<string, unknown
   const valued = history.filter((item) => (item.propertyValue ?? 0) > 0 || (item.landValue ?? 0) > 0);
   const latest = valued[0] ?? history[0];
   const newestZero = history.find((item) => (item.year ?? 0) > (latest?.year ?? 0) && !valued.includes(item));
+  const allZero = history.length > 0 && valued.length === 0;
   return {
     bfe,
     latest,
     latestNew: valued.find((item) => item.system === "new"),
     latestOld: valued.find((item) => item.system === "old"),
-    ...(newestZero
+    ...(allZero
+      ? {
+          note: "Alle vurderinger er 0 kr. Det ses typisk for en hovedejendom opdelt i ejerlejligheder, hvor hver lejlighed vurderes for sig, eller en ejendom uden selvstændig vurdering.",
+        }
+      : newestZero
       ? {
           note: `Vurderingen for ${newestZero.year} er 0 kr., typisk for en hovedejendom opdelt i ejerlejligheder eller en ejendom uden selvstændig vurdering. ${latest?.year ?? "Ingen"} er seneste vurdering med et beløb.`,
         }

@@ -139,7 +139,7 @@ async function collect(query: string) {
   return collectPropertyData({ query }, { stats: true, energy: true });
 }
 
-export async function watchProperty(query: string, note?: string) {
+export async function watchProperty(query: string, note?: string, options: { allowMismatch?: boolean } = {}) {
   let entries: WatchEntry[];
   try {
     entries = readWatchlist();
@@ -148,6 +148,12 @@ export async function watchProperty(query: string, note?: string) {
   }
   const data = await collect(query);
   if (data.idsResult.status !== "ok") return { error: data.idsResult.detail ?? "Address not found" };
+  // Watching the wrong flat or town would report its changes for months without anyone noticing.
+  if (data.ids?.matchWarning && !options.allowMismatch) {
+    return {
+      error: `${data.ids.matchWarning} Nothing was added. Use the exact address, or set allowMismatch to watch ${data.ids.designation ?? "it"} anyway.`,
+    };
+  }
   const id = data.ids?.bfe ?? data.ids?.addressId ?? data.ids?.houseNumberId ?? query;
   const existing = entries.find((entry) => entry.id === id);
   if (existing) {
