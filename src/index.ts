@@ -11,9 +11,12 @@ import {
   marketCategoryFor,
 } from "./sources/dst.js";
 import { getEnergyLabel } from "./sources/emodata.js";
+import { getHeritageAt } from "./sources/fbb.js";
 import { getEnvironmentAt } from "./sources/miljoportal.js";
 import { getPlansAt, getSiteConditionsAt } from "./sources/plandata.js";
 import { getTerrainAt } from "./sources/datafordeler/dhm.js";
+import { getAerialPhoto } from "./sources/dataforsyningen.js";
+import { getPropertyLocation } from "./sources/datafordeler/ebr.js";
 import {
   getAdminAreasAt,
   getBuildingsAndUnits,
@@ -96,7 +99,7 @@ export function createServer(): McpServer {
 
   server.tool(
     "get_parcel",
-    "Get cadastral parcels (matrikel) for a BFE number.",
+    "Get cadastral parcels (matrikel) for a BFE number, including theme notes such as fredskov, strandbeskyttelse and klitfredning.",
     { bfe: z.string().describe("BFE number") },
     async ({ bfe }) => asText(await getParcels(bfe)),
   );
@@ -164,6 +167,50 @@ export function createServer(): McpServer {
   );
 
   server.tool(
+    "get_aerial_photo",
+    "Get a GeoDanmark spring orthophoto (straight down) and a cropped skråfoto facade of the property. Needs the user's own Dataforsyningen token. The token is never included in an image URL.",
+    {
+      query: z.string().optional(),
+      addressId: z.string().optional(),
+    },
+    async ({ query, addressId }) => {
+      if (!query && !addressId) return asText({ error: "Provide query or addressId" });
+      const resolved = await resolveProperty({ query, addressId });
+      if (resolved.status !== "ok") return asText(resolved);
+      const id = resolved.data.addressId ?? addressId;
+      const point = id ? await lookupPoint(id) : undefined;
+      const addressPoint = resolved.data.coordinate?.epsg25832;
+      const coord = point ?? (addressPoint ? { ...addressPoint, kind: "address" as const } : undefined);
+      if (!coord) return asText(unavailable("dataforsyningen", "not_found", "Could not get coordinates for address"));
+      const result = await getAerialPhoto(coord.x, coord.y);
+      if (result.status !== "ok") return asText(result);
+      const { jpeg, facadeJpeg, photo } = result.data;
+      const content: Array<
+        { type: "text"; text: string } | { type: "image"; data: string; mimeType: string }
+      > = [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              status: result.status,
+              source: result.source,
+              fetchedAt: result.fetchedAt,
+              designation: resolved.data.designation,
+              lookupPoint: point?.kind ?? "address",
+              photo,
+            },
+            null,
+            2,
+          ),
+        },
+        { type: "image", data: jpeg, mimeType: "image/jpeg" },
+      ];
+      if (facadeJpeg) content.push({ type: "image", data: facadeJpeg, mimeType: "image/jpeg" });
+      return { content };
+    },
+  );
+
+  server.tool(
     "get_environment",
     "Get mapped soil contamination (V1/V2) and the coastal proximity zone at the property. Each locality says whether it is on the property (point inside or parcel listed) or only nearby (~80 m).",
     { addressId: z.string() },
@@ -178,22 +225,33 @@ export function createServer(): McpServer {
   );
 
   server.tool(
+    "get_heritage",
+    "Get SAVE preservation value (1–9, 1 is highest) and listed status from Slots- og Kulturstyrelsen (FBB) for buildings at the property.",
+    { addressId: z.string() },
+    async ({ addressId }) => {
+      const point = await lookupPoint(addressId);
+      if (!point) return asText(unavailable("fbb", "not_found", "Could not get coordinates for address"));
+      return asText(await getHeritageAt(point.x, point.y));
+    },
+  );
+
+  server.tool(
+    "get_property_location",
+    "Get the property's location from EBR: the street address linked to the BFE, or the text designation used when the property has no street address. Same Datafordeleren API key as BBR. No owner names.",
+    { bfe: z.string() },
+    async ({ bfe }) => asText(await getPropertyLocation(bfe)),
+  );
+
+  server.tool(
     "get_energy_label",
-    "Get the official energy label (energimærke) when EMOData credentials are configured.",
+    "Get the official energy label (energimærke) for a BFE from Energistyrelsen's EMOData service. Needs the user's own EMOData agreement. Also included in property_report.",
     {
       addressId: z.string().optional(),
       query: z.string().optional(),
     },
     async ({ addressId, query }) => {
       const resolved = addressId || query ? await resolveProperty({ addressId, query }) : undefined;
-      const designation =
-        resolved?.status === "ok" ? resolved.data.designation : query;
-      return asText(
-        await getEnergyLabel({
-          address: designation,
-          bfe: resolved?.status === "ok" ? resolved.data.bfe : undefined,
-        }),
-      );
+      return asText(await getEnergyLabel({ bfe: resolved?.status === "ok" ? resolved.data.bfe : undefined }));
     },
   );
 

@@ -47,14 +47,17 @@ When a key is missing, the tools say which source is affected and how to get acc
 | `search_address` | Free-text Danish address → DAR ids |
 | `resolve_property` | Address id → BFE, cadastral ids, coordinate |
 | `get_buildings` | BBR buildings and units |
-| `get_parcel` | Matrikel parcels for a BFE |
+| `get_parcel` | Matrikel parcels for a BFE, including fredskov, strandbeskyttelse and klitfredning |
 | `get_valuation` | Official VUR values and history |
 | `get_trades` | Sale prices and dates from EJF (your own approved OAuth access; no names) |
-| `get_admin_areas` | Municipality, region, parish, districts |
+| `get_admin_areas` | Municipality, region, parish, court and police districts |
 | `get_plans` | Local plans, subareas, frameworks with building rights, zone, plan proposals |
 | `get_site_conditions` | Heat supply, sewer, flood/erosion, groundwater, noise, livestock, planned roads/facilities, heritage |
 | `get_environment` | Soil contamination on the property vs nearby, coastal zone |
+| `get_heritage` | SAVE value 1–9 and listed status (FBB) |
 | `get_terrain` | Terrain height (DVR90), highest surface nearby, and whether the plot lies in a hollow |
+| `get_property_location` | EBR location for a BFE: street address, or a text designation when there is no address |
+| `get_aerial_photo` | Spring orthophoto and a cropped skråfoto facade (needs a Dataforsyningen token) |
 | `get_nearby_services` | Distance to nearest school, daycare, shop, doctor and sports hall (BBR) |
 | `get_local_statistics` | Parish statistics and regional price index / average sale price |
 | `watch_property` / `check_watchlist` / `list_watchlist` / `unwatch_property` | Watch properties and report what changed since the last check |
@@ -76,7 +79,7 @@ Every tool returns a `SourceResult`: either `{ status: "ok", source, fetchedAt, 
 
 | Tier | Meaning | Examples |
 |---|---|---|
-| T0 | Open | Adressevælgeren, Plandata, Miljøportal, DST |
+| T0 | Open | Adressevælgeren, Plandata, Miljøportal, FBB, DST |
 | T1 | Free key | Datafordeleren GraphQL, Dataforsyningen |
 | T2 | Agreement | EMOData energy labels |
 | T3 / X | Not built | Tingbog; private owner names |
@@ -91,7 +94,7 @@ See [docs/credentials.md](docs/credentials.md) for how to get each key.
 | `DATAFORDELER_OAUTH_CLIENT_ID` / `_SECRET` | Sale prices from EJF, after Geodatastyrelsen approves your own request. Never owner names |
 | `ADRESSEVAELGER_TOKEN` | Optional; defaults to `adressevaelger123` |
 | `EMODATA_USER` / `EMODATA_PASSWORD` | Energy labels |
-| `DATAFORSYNINGEN_TOKEN` | Optional imagery (not in core tools) |
+| `DATAFORSYNINGEN_TOKEN` | `get_aerial_photo` |
 | `CACHE_PATH` | SQLite cache file (default `~/.cache/boligmcp/cache.db`) |
 | `BOLIGMCP_CREDENTIALS_FILE` | Override the credentials file path |
 | `BOLIGMCP_ENV_FILE` | Development only: load this `.env` file |

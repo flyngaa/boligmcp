@@ -42,6 +42,16 @@ export const SOURCES: SourceDefinition[] = [
     docsUrl: "https://confluence.kds.dk/pages/viewpage.action?pageId=187105434",
   },
   {
+    id: "ebr",
+    setup: DATAFORDELER_SETUP,
+    name: "Ejendomsbeliggenhed (EBR)",
+    tier: "T1",
+    envKeys: ["datafordelerApiKey"],
+    ttlSeconds: 60 * 60 * 24,
+    docsUrl: "https://datafordeler.dk/dataoversigt/ejendomsbeliggenhedsregistret-ebr/ebr-graphql/",
+    notes: "Street address for a BFE, or a text designation when the property has no address.",
+  },
+  {
     id: "matrikel",
     setup: DATAFORDELER_SETUP,
     name: "Matriklen",
@@ -99,6 +109,15 @@ export const SOURCES: SourceDefinition[] = [
     docsUrl: "https://www.plandata.dk/webservices/introduktion-til-webservices/wfs",
   },
   {
+    id: "fbb",
+    name: "Fredede og bevaringsværdige bygninger (FBB)",
+    tier: "T0",
+    envKeys: [],
+    ttlSeconds: 60 * 60 * 24,
+    docsUrl: "https://www.kulturarv.dk/fbb/",
+    notes: "SAVE 1–9 and listed status from Slots- og Kulturstyrelsen. No key.",
+  },
+  {
     id: "miljoportal",
     name: "Danmarks Miljøportal (Arealinfo)",
     tier: "T0",
@@ -149,10 +168,10 @@ export const SOURCES: SourceDefinition[] = [
     name: "Dataforsyningen imagery",
     tier: "T1",
     envKeys: ["dataforsyningenToken"],
-    setup: "Optional. Create a user and token at https://dataforsyningen.dk, then run `" + SETUP_COMMAND + "`.",
+    setup: "Create a user and token at https://dataforsyningen.dk, then run `" + SETUP_COMMAND + "`.",
     ttlSeconds: 60 * 60 * 24 * 7,
     docsUrl: "https://dataforsyningen.dk/",
-    notes: "Stretch: skråfoto / orthophoto / terrain. Not used by core tools yet.",
+    notes: "Used by get_aerial_photo: spring orthophoto and a cropped skråfoto facade.",
   },
 ];
 

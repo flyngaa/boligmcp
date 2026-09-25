@@ -5,6 +5,7 @@ import { mapIdLookup } from "../src/sources/adressevaelger.js";
 import * as adv from "../src/sources/adressevaelger.js";
 import * as dst from "../src/sources/dst.js";
 import * as emo from "../src/sources/emodata.js";
+import * as fbb from "../src/sources/fbb.js";
 import * as miljo from "../src/sources/miljoportal.js";
 import * as plan from "../src/sources/plandata.js";
 import * as daf from "../src/sources/datafordeler/registers.js";
@@ -79,6 +80,12 @@ describe("property_report", () => {
       source: "plandata",
       fetchedAt: new Date().toISOString(),
       data: { items: [], checkedLayers: 16, failedLayers: [] },
+    });
+    vi.spyOn(fbb, "getHeritageAt").mockResolvedValue({
+      status: "ok",
+      source: "fbb",
+      fetchedAt: new Date().toISOString(),
+      data: { items: [] },
     });
     vi.spyOn(miljo, "getEnvironmentAt").mockResolvedValue({
       status: "ok",

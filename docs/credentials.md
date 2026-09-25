@@ -34,7 +34,7 @@ Required for `get_energy_label`. Register with Energistyrelsen EMOData (typicall
 
 ### 4. `DATAFORSYNINGEN_TOKEN` — T1, optional
 
-Create a user at [dataforsyningen.dk](https://dataforsyningen.dk) and mint a token. Only needed for skråfoto / orthophoto / terrain (not in the core tool list).
+Create a user at [dataforsyningen.dk](https://dataforsyningen.dk) and mint a token. Required for `get_aerial_photo`. The token is sent as a header and is never returned in the image URL.
 
 ## No key required
 

@@ -4,7 +4,9 @@ import { lookupAddress } from "../sources/adressevaelger.js";
 import { getAreaStatsForMunicipality, getParishStats, getRegionalMarket, marketCategoryFor } from "../sources/dst.js";
 import { getFootprints } from "../sources/datafordeler/geodanmark.js";
 import { getNearbyServices } from "../sources/datafordeler/nearby.js";
+import { getPropertyLocation, type PropertyLocation } from "../sources/datafordeler/ebr.js";
 import { getEnergyLabel } from "../sources/emodata.js";
+import { getHeritageAt } from "../sources/fbb.js";
 import { getEnvironmentAt } from "../sources/miljoportal.js";
 import { getPlansAt, getSiteConditionsAt } from "../sources/plandata.js";
 import { getTerrainAt } from "../sources/datafordeler/dhm.js";
@@ -24,6 +26,7 @@ import type {
   EnergyLabel,
   EnvironmentInfo,
   Footprint,
+  HeritageInfo,
   Ground,
   NearbyServices,
   Parcel,
@@ -119,11 +122,13 @@ export interface PropertyData {
   environment?: SourceResult<EnvironmentInfo>;
   stats?: SourceResult<AreaStats>;
   energy?: SourceResult<EnergyLabel>;
+  location?: SourceResult<PropertyLocation>;
   terrain?: SourceResult<TerrainInfo>;
   nearby?: SourceResult<NearbyServices>;
   footprints?: SourceResult<Footprint[]>;
   parish?: SourceResult<AreaStats>;
   market?: SourceResult<AreaStats>;
+  heritage?: SourceResult<HeritageInfo>;
 }
 
 /** Statistics are context, not core data: after this long the report goes out without them. */
@@ -165,7 +170,8 @@ export async function collectPropertyData(
     ids?.bfe ? getValuation(ids.bfe) : Promise.resolve(undefined),
     ids?.bfe && !skip.trades ? getTrades(ids.bfe) : Promise.resolve(undefined),
     addressCoord ? getAdminAreasAt(addressCoord.x, addressCoord.y) : Promise.resolve(undefined),
-    skip.energy ? Promise.resolve(undefined) : getEnergyLabel({ address: ids?.designation, bfe: ids?.bfe }),
+    skip.energy ? Promise.resolve(undefined) : getEnergyLabel({ bfe: ids?.bfe }),
+    ids?.bfe ? getPropertyLocation(ids.bfe) : Promise.resolve(undefined),
   ]);
   const buildings = unwrap(first[0]) as BbrResult | undefined;
   const parcel = unwrap(first[1]) as SourceResult<Parcel[]> | undefined;
@@ -173,6 +179,7 @@ export async function collectPropertyData(
   const trades = unwrap(first[3]) as SourceResult<Trade[]> | undefined;
   const admin = unwrap(first[4]) as SourceResult<AdminAreas> | undefined;
   const energy = unwrap(first[5]) as SourceResult<EnergyLabel> | undefined;
+  const location = unwrap(first[6]) as SourceResult<PropertyLocation> | undefined;
 
   if (admin?.status === "ok") municipalityCode = admin.data.municipalityCode ?? municipalityCode;
 
@@ -199,6 +206,7 @@ export async function collectPropertyData(
           statsTimeout,
         )
       : Promise.resolve(undefined),
+    point ? getHeritageAt(point.x, point.y) : Promise.resolve(undefined),
   ]);
 
   return {
@@ -210,6 +218,7 @@ export async function collectPropertyData(
     trades,
     admin,
     energy,
+    location,
     plans: unwrap(second[0]) as SourceResult<PlanInfo> | undefined,
     site: unwrap(second[1]) as SourceResult<SiteConditions> | undefined,
     environment: unwrap(second[2]) as SourceResult<EnvironmentInfo> | undefined,
@@ -219,6 +228,7 @@ export async function collectPropertyData(
     footprints: unwrap(second[6]) as SourceResult<Footprint[]> | undefined,
     parish: unwrap(second[7]) as SourceResult<AreaStats> | undefined,
     market: unwrap(second[8]) as SourceResult<AreaStats> | undefined,
+    heritage: unwrap(second[9]) as SourceResult<HeritageInfo> | undefined,
   };
 }
 
@@ -264,6 +274,8 @@ export function summarize(data: PropertyData) {
     siteConditions: site?.status === "ok" ? site.data.items.length : undefined,
     terrainM: data.terrain?.status === "ok" ? data.terrain.data.terrainM : undefined,
     energyLabel: energy?.status === "ok" ? energy.data.rating : undefined,
+    hasStreetAddress: data.location?.status === "ok" ? data.location.data.hasStreetAddress : undefined,
+    locationDesignation: data.location?.status === "ok" ? data.location.data.designation : undefined,
   };
 }
 
@@ -289,11 +301,13 @@ export function missingSources(data: PropertyData): Array<{ source: string; reas
     data.environment,
     data.stats,
     data.energy,
+    data.location,
     data.terrain,
     data.nearby,
     data.footprints,
     data.parish,
     data.market,
+    data.heritage,
   ]) {
     collect(result);
   }
@@ -330,11 +344,13 @@ export async function buildPropertyReport(input: {
     environment: data.environment ? compact(data.environment, 10) : undefined,
     areaStats: data.stats,
     energy: data.energy,
+    location: data.location,
     terrain: data.terrain,
     nearby: data.nearby,
     footprints: data.footprints,
     parishStats: data.parish,
     market: data.market,
+    heritage: data.heritage,
     missing,
   };
 

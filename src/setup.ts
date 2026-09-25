@@ -90,7 +90,7 @@ const FIELDS: Field[] = [
   {
     key: "DATAFORSYNINGEN_TOKEN",
     label: "Dataforsyningen token",
-    help: "Optional. dataforsyningen.dk → create a user → token. Not used by the core tools yet.",
+    help: "dataforsyningen.dk → create a user → token. Used by get_aerial_photo.",
     secret: true,
   },
 ];

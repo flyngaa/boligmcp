@@ -5,6 +5,7 @@ import type {
   Flag,
   Footprint,
   Ground,
+  HeritageInfo,
   Parcel,
   PlanInfo,
   PlanItem,
@@ -29,6 +30,7 @@ export interface FlagInput {
   plans?: PlanInfo;
   site?: SiteConditions;
   environment?: EnvironmentInfo;
+  heritage?: HeritageInfo;
 }
 
 export function flagInputFrom(results: {
@@ -38,6 +40,7 @@ export function flagInputFrom(results: {
   plans?: SourceResult<PlanInfo>;
   site?: SourceResult<SiteConditions>;
   environment?: SourceResult<EnvironmentInfo>;
+  heritage?: SourceResult<HeritageInfo>;
   trades?: SourceResult<Trade[]>;
   terrain?: SourceResult<TerrainInfo>;
   footprints?: SourceResult<Footprint[]>;
@@ -53,6 +56,7 @@ export function flagInputFrom(results: {
     plans: data(results.plans),
     site: data(results.site),
     environment: data(results.environment),
+    heritage: data(results.heritage),
     trades: data(results.trades),
     terrain: data(results.terrain),
     footprints: data(results.footprints),
@@ -233,6 +237,69 @@ export function buildFlags(input: FlagInput): Flag[] {
       title: "Bevaringsværdig bygning",
       detail: `${preserve.map((b) => `${b.usage}: ${b.listing}`).join("; ")}. Ændringer af facade og nedrivning kan kræve tilladelse.`,
       sources: ["bbr"],
+    });
+  }
+
+  const heritageItems = input.heritage?.items ?? [];
+  const fbbListed = heritageItems.filter((item) => item.listed);
+  if (fbbListed.length && !listed.length) {
+    add({
+      id: "listed_building",
+      severity: "high",
+      title: "Fredet bygning",
+      detail: fbbListed.map((item) => item.address ?? "Bygning").join("; "),
+      sources: ["fbb"],
+    });
+  }
+  const assessed = heritageItems.filter((item) => item.saveValue);
+  if (assessed.length) {
+    const best = Math.min(...assessed.map((item) => item.saveValue!));
+    const severity = best <= 3 ? "high" : best <= 6 ? "medium" : "info";
+    const rank = best <= 3 ? "høj" : best <= 6 ? "middel" : "lav";
+    add({
+      id: "save_value",
+      severity,
+      title: `SAVE-bevaringsværdi ${best}`,
+      detail: `${assessed.map((item) => `${item.address ?? "Bygning"}: SAVE ${item.saveValue}`).join("; ")}. ${rank} bevaringsværdi (1 er højest, 9 er lavest). Ændringer kan kræve kommunens tilladelse.`,
+      sources: ["fbb"],
+    });
+  }
+
+  const themeFlags: Record<string, { id: string; title: string; detail: string }> = {
+    Fredskov: {
+      id: "forest_reserve",
+      title: "Fredskov",
+      detail: "Matriklen har fredskov på grunden. Rydning og byggeri kræver dispensation.",
+    },
+    Strandbeskyttelse: {
+      id: "beach_protection",
+      title: "Strandbeskyttelse",
+      detail: "Matriklen har strandbeskyttelse på grunden. Ændringer og nyt byggeri inden for linjen kræver dispensation.",
+    },
+    Klitfredning: {
+      id: "dune_protection",
+      title: "Klitfredning",
+      detail: "Matriklen har klitfredning på grunden. Ændringer kræver dispensation.",
+    },
+  };
+  const seenThemes = new Set<string>();
+  const otherThemes: string[] = [];
+  for (const parcel of input.parcels ?? []) {
+    for (const note of parcel.notes ?? []) {
+      if (seenThemes.has(note)) continue;
+      seenThemes.add(note);
+      const known = themeFlags[note];
+      if (known) add({ ...known, severity: "high", sources: ["matrikel"] });
+      else otherThemes.push(note);
+    }
+  }
+  if (otherThemes.length) {
+    add({
+      id: "cadastral_note",
+      severity: "info",
+      title: "Matrikelnotering",
+      detail: otherThemes.join(", "),
+      sources: ["matrikel"],
     });
   }
 

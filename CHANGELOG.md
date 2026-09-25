@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### New
+- `get_property_location`: EBR beliggenhed for a BFE. A street address when one exists, otherwise the text designation used for a property with no address. Same Datafordeleren API key as BBR.
+- `get_aerial_photo`: GeoDanmark spring orthophoto plus a cropped skråfoto facade. The crop uses Klimadatastyrelsen's published camera formula and the public COG. The token is sent as a header and never put in an image URL.
+- `get_energy_label` calls Energistyrelsen's `SearchEnergyLabelBFE` endpoint. It still needs the user's own EMOData agreement.
+
 ### Fixes
 - BBR units with lifecycle status historic (10) or misregistered (11) are dropped, as buildings already were. A misregistered unit could add a phantom dwelling to the address.
 - A slow Statistikbanken no longer holds up `property_report`: 8 s per request with one retry, and area, parish and market statistics are left out after 15 s. One report took 194 s before this change.

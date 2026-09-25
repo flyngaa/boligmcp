@@ -177,6 +177,18 @@ export async function resolveFromAddressId(addressId: string): Promise<SourceRes
   }
 }
 
+/** Theme areas registered on one parcel. tematype is data, not a filter field. */
+async function cadastralNotes(jordstykkeId: string): Promise<string[]> {
+  const rows = await queryNodes(
+    "MAT",
+    "MAT_JordstykkeTemaflade",
+    "tematype",
+    { jordstykkeLokalId: { eq: jordstykkeId }, status: { eq: "Gældende" } },
+    50,
+  );
+  return [...new Set(rows.map((row) => str(row.tematype)).filter((value): value is string => Boolean(value)))];
+}
+
 export async function getParcels(bfe: string): Promise<SourceResult<Parcel[]>> {
   if (!hasKey()) return datafordelerUnavailable("matrikel");
   try {
@@ -212,6 +224,7 @@ export async function getParcels(bfe: string): Promise<SourceResult<Parcel[]>> {
         )[0];
         district = str(ejerlav?.ejerlavskode);
       }
+      const parcelId = str(item.id_lokalId);
       mapped.push({
         cadastralDistrictCode: district,
         cadastralDistrictName: undefined,
@@ -219,6 +232,7 @@ export async function getParcels(bfe: string): Promise<SourceResult<Parcel[]>> {
         bfe,
         registeredArea: num(item.registreretAreal),
         municipalityCode: str(item.kommuneLokalId),
+        notes: parcelId ? await cadastralNotes(parcelId) : [],
       });
     }
     if (mapped.length === 0) return unavailable("matrikel", "not_found", `No parcel for BFE ${bfe}`);
@@ -606,12 +620,14 @@ export async function getAdminAreasAt(x: number, y: number): Promise<SourceResul
         wkt: `POINT(${x} ${y})`,
       },
     };
-    const [kommune, region, sogn, post, landsdel] = await Promise.all([
+    const [kommune, region, sogn, post, landsdel, court, police] = await Promise.all([
       queryNodes("DAGI", "DAGI_Kommuneinddeling", "kommunekode navn", { geometri: point }, 1),
       queryNodes("DAGI", "DAGI_Regionsinddeling", "regionskode navn", { geometri: point }, 1),
       queryNodes("DAGI", "DAGI_Sogneinddeling", "sognekode navn", { geometri: point }, 1),
       queryNodes("DAGI", "DAGI_Postnummerinddeling", "postnummer navn", { geometri: point }, 1),
       queryNodes("DAGI", "DAGI_Landsdel", "navn", { geometri: point }, 1).catch(() => []),
+      queryNodes("DAGI", "DAGI_Retskreds", "navn", { geometri: point }, 1).catch(() => []),
+      queryNodes("DAGI", "DAGI_Politikreds", "navn", { geometri: point }, 1).catch(() => []),
     ]);
     return ok("dagi", {
       municipalityCode: str(kommune[0]?.kommunekode),
@@ -623,6 +639,8 @@ export async function getAdminAreasAt(x: number, y: number): Promise<SourceResul
       postalCode: str(post[0]?.postnummer),
       postalName: str(post[0]?.navn),
       landsdelName: str(landsdel[0]?.navn),
+      courtDistrict: str(court[0]?.navn),
+      policeDistrict: str(police[0]?.navn),
     });
   } catch (error) {
     return unavailable("dagi", "upstream_error", error instanceof Error ? error.message : String(error));

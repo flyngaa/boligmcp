@@ -3,6 +3,7 @@ import { z } from "zod";
 export const SourceIdSchema = z.enum([
   "adressevaelger",
   "dar",
+  "ebr",
   "matrikel",
   "bbr",
   "dagi",
@@ -15,6 +16,7 @@ export const SourceIdSchema = z.enum([
   "geodanmark",
   "emodata",
   "dataforsyningen",
+  "fbb",
 ]);
 export type SourceId = z.infer<typeof SourceIdSchema>;
 
@@ -200,6 +202,8 @@ export const ParcelSchema = z.object({
   bfe: z.string().optional(),
   registeredArea: z.number().nullable().optional(),
   municipalityCode: z.string().optional(),
+  /** Cadastral theme areas on the parcel, e.g. Fredskov, Strandbeskyttelse, Klitfredning. */
+  notes: z.array(z.string()).optional(),
 });
 export type Parcel = z.infer<typeof ParcelSchema>;
 
@@ -257,6 +261,20 @@ export const AdminAreasSchema = z.object({
   constituency: z.string().optional(),
 });
 export type AdminAreas = z.infer<typeof AdminAreasSchema>;
+
+/** One building from Slots- og Kulturstyrelsens FBB. SAVE 1 is the highest value. */
+export const HeritageBuildingSchema = z.object({
+  address: z.string().optional(),
+  saveValue: z.number().int().optional(),
+  listed: z.boolean().optional(),
+  listingStatus: z.number().int().optional(),
+});
+export type HeritageBuilding = z.infer<typeof HeritageBuildingSchema>;
+
+export const HeritageInfoSchema = z.object({
+  items: z.array(HeritageBuildingSchema),
+});
+export type HeritageInfo = z.infer<typeof HeritageInfoSchema>;
 
 export const PlanItemSchema = z.object({
   planId: z.string().optional(),
