@@ -1,0 +1,6 @@
+[
+  {"id": "aa_villa", "tool": "get_admin_areas", "args": {"query": "Egeskovvej 41, 8800 Viborg"}, "expect": [{"path": "data.municipalityCode", "equals": "0791"}, {"path": "data.municipalityName", "equals": "Viborg"}, {"path": "data.regionName", "equals": "Region Midtjylland"}, {"path": "data.parishName", "equals": "Dollerup"}, {"path": "data.courtDistrict", "equals": "Retten i Viborg"}, {"path": "data.policeDistrict", "present": true}, {"path": "data.landsdelName", "equals": "Vestjylland"}]},
+  {"id": "aa_no_address", "tool": "get_admin_areas", "args": {"bfe": "1329894"}, "expect": [{"path": "data.municipalityName", "equals": "Faaborg-Midtfyn"}, {"path": "address", "equals": "Haundrupvej 3X"}]},
+  {"id": "aa_no_bfe", "tool": "get_admin_areas", "args": {"query": "Christiansø 1, 3760 Gudhjem"}, "expect": [{"path": "data.municipalityName", "equals": "Christiansø"}, {"path": "data.municipalityCode", "equals": "0411"}]},
+  {"id": "aa_no_credentials", "tool": "get_admin_areas", "args": {"query": "Egeskovvej 41, 8800 Viborg"}, "expect": [{"path": "reason", "equals": "missing_credentials"}, {"path": "detail", "matches": "Do not ask the user to paste"}], "env": "no_credentials"}
+]

@@ -1,0 +1,12 @@
+[
+  {"id": "gv_new_system", "tool": "get_valuation", "args": {"bfe": "3451459"}, "expect": [{"path": "data.latestNew.year", "equals": 2022, "stable": false}, {"path": "data.latestNew.system", "equals": "new"}, {"path": "data.latestOld.year", "equals": 2020}, {"path": "data.latestOld.propertyValue", "equals": 1750000}, {"path": "data.latest.year", "equals": 2022, "stable": false}, {"maxTokens": 2500}]},
+  {"id": "gv_parts", "tool": "get_valuation", "args": {"bfe": "9519007"}, "expect": [{"path": "data.latest.year", "equals": 2020, "stable": false}, {"path": "data.latest.propertyValue", "equals": 73120700, "stable": false}, {"path": "data.latest.parts", "equals": 2}, {"path": "data.history[*].propertyValue", "notMatches": "80500000", "why": "S1: 2003 revision added to its original"}, {"path": "data.history[*].propertyValue", "contains": 40500000}]},
+  {"id": "gv_zero_newer", "tool": "get_valuation", "args": {"bfe": "10229320"}, "expect": [{"path": "data.latest.year", "equals": 2007}, {"path": "data.latest.propertyValue", "equals": 1500000}, {"path": "data.note", "matches": "2020 er 0 kr"}]},
+  {"id": "gv_all_zero", "tool": "get_valuation", "args": {"bfe": "100025920"}, "expect": [{"path": "data.note", "matches": "Alle vurderinger er 0 kr"}]},
+  {"id": "gv_condo", "tool": "get_valuation", "args": {"bfe": "189290"}, "expect": [{"path": "data.bfe", "equals": "189290"}, {"path": "data.latest.propertyValue", "range": [1, 1000000000]}, {"path": "data.latest", "sameAs": "gv_condo_int:data.latest"}]},
+  {"id": "gv_condo_int", "tool": "get_valuation", "args": {"bfe": 189290}, "expect": [{"path": "status", "equals": "ok"}]},
+  {"id": "gv_commercial", "tool": "get_valuation", "args": {"bfe": "100074116"}, "expect": [{"path": "data.latestNew", "absent": true}, {"path": "data.latestOld.year", "equals": 2020, "stable": false}, {"path": "data.history[*].parts", "notMatches": "2", "why": "2015 placeholder counted as a part"}]},
+  {"id": "gv_no_address", "tool": "get_valuation", "args": {"bfe": "1329894"}, "expect": [{"path": "data.latest.propertyValue", "equals": 260000, "stable": false}]},
+  {"id": "gv_unknown", "tool": "get_valuation", "args": {"bfe": "999999999"}, "expect": [{"path": "reason", "equals": "not_found"}]},
+  {"id": "gv_no_credentials", "tool": "get_valuation", "args": {"bfe": "3451459"}, "expect": [{"path": "reason", "equals": "missing_credentials"}, {"path": "detail", "matches": "setup"}], "env": "no_credentials"}
+]

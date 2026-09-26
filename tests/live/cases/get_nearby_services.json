@@ -1,0 +1,5 @@
+[
+  {"id": "nb_town", "tool": "get_nearby_services", "args": {"query": "Borgergade 1, 7200 Grindsted"}, "expect": [{"path": "$text", "matches": "\"category\":\"school\",\"label\":\"[^\"]*\",\"nearestM\":(2[0-9]{2}|3[0-4][0-9])"}]},
+  {"id": "nb_rural_nulls", "tool": "get_nearby_services", "args": {"query": "Klitrosevej 3, 6950 Ringkøbing"}, "expect": [{"path": "$text", "matches": "\"category\":\"school\",\"label\":\"[^\"]*\",\"nearestM\":null,\"within1km\":0"}, {"path": "$text", "notMatches": "\"nearestM\":0[,}]"}]},
+  {"id": "nb_no_credentials", "tool": "get_nearby_services", "args": {"query": "Egeskovvej 41, 8800 Viborg"}, "expect": [{"path": "reason", "equals": "missing_credentials"}], "env": "no_credentials"}
+]

@@ -23,6 +23,8 @@
     "prepublishOnly": "pnpm build",
     "codes:update": "tsx scripts/update-bbr-codes.ts",
     "smoke": "BOLIGMCP_ENV_FILE=.env tsx scripts/live-report.ts",
+    "live": "tsx scripts/live-regression.ts",
+    "live:sample": "BOLIGMCP_ENV_FILE=.env tsx scripts/live-sample.ts",
     "setup": "tsx src/index.ts setup",
     "bundle:validate": "mcpb validate manifest.json"
   },

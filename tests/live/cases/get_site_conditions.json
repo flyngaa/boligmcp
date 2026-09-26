@@ -1,0 +1,7 @@
+[
+  {"id": "sc_coast", "tool": "get_site_conditions", "args": {"query": "Fyrvej 36, 9990 Skagen"}, "expect": [{"path": "data.items[*].category", "contains": "^flood_or_erosion_risk$"}, {"path": "data.items[*].category", "contains": "^valuable_cultural_environment$"}, {"path": "data.failedLayers", "equals": []}]},
+  {"id": "sc_heat", "tool": "get_site_conditions", "args": {"query": "Egeskovvej 41, 8800 Viborg"}, "expect": [{"path": "data.items[*].category", "contains": "^heat_supply_area$"}, {"path": "data.items[0].details", "matches": "Viborg Varme"}]},
+  {"id": "sc_code_only", "tool": "get_site_conditions", "args": {"query": "Vesterhavsvej 5, 6960 Hvide Sande"}, "expect": [{"path": "$text", "matches": "^(?!.*23er058.*23er058)", "why": "code shown once"}, {"path": "data.items[*].details", "contains": "kode 23er058"}, {"path": "data.items[*].value", "notMatches": "^23er058$", "why": "readable value, not the bare code"}]},
+  {"id": "sc_rural_empty", "tool": "get_site_conditions", "args": {"query": "Grønbjergvej 28, Grøntoft, 6971 Spjald"}, "expect": [{"path": "data.checkedLayers", "equals": 16}, {"path": "data.failedLayers", "equals": []}]},
+  {"id": "sc_no_address", "tool": "get_site_conditions", "args": {"bfe": 1329894}, "expect": [{"path": "status", "equals": "ok"}, {"path": "data.lookupPoint", "equals": "parcel"}]}
+]

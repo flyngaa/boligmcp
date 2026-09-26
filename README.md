@@ -111,6 +111,7 @@ After you have a Datafordeleren key:
 
 ```bash
 pnpm smoke "Egeskovvej 41, 8800 Viborg"   # live property_report
+pnpm live                                  # live regression suite (docs/test-plan.md); pnpm live resolve_property, pnpm live --group core
 pnpm exec tsx scripts/probe-fields.ts BBR BBR_Bygning '{"id_lokalId":{"eq":"<id>"}}' byg057Opvarmningsmiddel
 ```
 

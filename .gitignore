@@ -7,3 +7,5 @@ cache.db-journal
 .DS_Store
 .turbo
 coverage/
+tests/live/.last-run.json
+tests/live/.last-sample.json

@@ -1,0 +1,10 @@
+[
+  {"id": "pl_framework", "tool": "get_plans", "args": {"query": "Egeskovvej 41, 8800 Viborg"}, "expect": [{"path": "status", "equals": "ok"}, {"path": "data.lookupPoint", "equals": "building"}, {"path": "data.items[*].planNumber", "contains": "^HALD\\.B1\\.01$"}, {"path": "data.items[*].zoneStatus", "contains": "^Byzone$"}, {"path": "data.items[*].type", "notMatches": "^local_plan$"}, {"path": "data.nearby[0].type", "equals": "local_plan"}, {"path": "data.nearby[0].withinM", "present": true}, {"maxTokens": 1500}]},
+  {"id": "pl_local_plans_count", "tool": "get_plans", "args": {"query": "Frederiksberg Allé 10, 1., 1820 Frederiksberg C"}, "expect": [{"path": "$text", "matches": "(.*\"type\":\"local_plan\"){3}"}, {"path": "data.items[*].type", "contains": "^municipal_framework$"}]},
+  {"id": "pl_rural", "tool": "get_plans", "args": {"query": "Grønbjergvej 28, Grøntoft, 6971 Spjald"}, "expect": [{"path": "data.items[*].zoneStatus", "contains": "^Landzone$"}, {"path": "data.items[*].notes", "matches": "Udledt"}]},
+  {"id": "pl_summer", "tool": "get_plans", "args": {"query": "Klitrosevej 3, 6950 Ringkøbing"}, "expect": [{"path": "data.items[*].zoneStatus", "contains": "^Sommerhusområde$"}]},
+  {"id": "pl_text", "tool": "get_plans", "args": {"query": "Lodbergsvej 10, Søndervig, 6950 Ringkøbing"}, "expect": [{"path": "$text", "notMatches": "Ã|Â|�"}, {"path": "data.items[*].type", "contains": "^local_plan$"}]},
+  {"id": "pl_no_address", "tool": "get_plans", "args": {"bfe": "1329894"}, "expect": [{"path": "status", "equals": "ok"}, {"path": "data.lookupPoint", "equals": "parcel", "why": "S2: no bfe input; S3: centroid labelled address"}, {"path": "address", "equals": "Haundrupvej 3X"}]},
+  {"id": "pl_no_credentials", "tool": "get_plans", "args": {"query": "Egeskovvej 41, 8800 Viborg"}, "expect": [{"path": "status", "equals": "ok"}, {"path": "data.lookupPoint", "equals": "address"}, {"path": "data.items[*].planNumber", "contains": "^HALD\\.B1\\.01$"}], "env": "no_credentials"},
+  {"id": "pl_unknown_param", "tool": "get_plans", "args": {"query": "Egeskovvej 41, 8800 Viborg", "radius": 5}, "expect": [{"path": "$isError", "equals": true}]}
+]

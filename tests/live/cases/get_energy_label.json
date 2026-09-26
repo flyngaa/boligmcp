@@ -1,0 +1,5 @@
+[
+  {"id": "el_address", "tool": "get_energy_label", "args": {"query": "Egeskovvej 41, 8800 Viborg"}, "expect": [{"path": "reason", "equals": "missing_credentials"}, {"path": "detail", "matches": "EMOData"}, {"path": "detail", "matches": "Do not ask the user to paste"}, {"path": "address", "equals": "Egeskovvej 41, Hald Ege, 8800 Viborg"}]},
+  {"id": "el_bfe", "tool": "get_energy_label", "args": {"bfe": 3451459}, "expect": [{"path": "reason", "equals": "missing_credentials"}]},
+  {"id": "el_no_credentials", "tool": "get_energy_label", "args": {"query": "Egeskovvej 41, 8800 Viborg"}, "expect": [{"path": "reason", "equals": "missing_credentials"}], "env": "no_credentials"}
+]

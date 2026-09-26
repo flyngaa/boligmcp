@@ -1,0 +1,9 @@
+[
+  {"id": "gt_sale", "tool": "get_trades", "args": {"bfe": "3451459"}, "expect": [{"path": "data.length", "equals": 1}, {"path": "data[0].date", "equals": "1990-07-31"}, {"path": "data[0].price", "equals": 550000, "why": "S1: rolled-back 275.000 kr. row was shown"}, {"path": "$text", "notMatches": "275000"}, {"path": "$text", "notMatches": "\"[^\"]*(owner|buyer|seller|name|navn|cpr|cvr|deed|skoede|koeber|saelger)[^\"]*\":", "why": "no identity fields"}]},
+  {"id": "gt_placeholder", "tool": "get_trades", "args": {"bfe": "6033799"}, "expect": [{"path": "$text", "notMatches": "1969-12-31|1970-01-01"}, {"path": "data[0].date", "absent": true}]},
+  {"id": "gt_unpriced", "tool": "get_trades", "args": {"bfe": "10229320"}, "expect": [{"path": "data[*].price", "contains": 3500000}, {"path": "data[*].date", "contains": "^2008-01-14$"}, {"path": "data[*].transferType", "contains": "Ikke oplyst"}, {"path": "data[0].price", "equals": null}]},
+  {"id": "gt_family", "tool": "get_trades", "args": {"bfe": "1329894"}, "expect": [{"path": "data[0].transferType", "equals": "Familieoverdragelse"}, {"path": "data[0].price", "equals": 153000}, {"path": "data[0].date", "equals": "2009-04-29"}]},
+  {"id": "gt_condo", "tool": "get_trades", "args": {"bfe": "189290"}, "expect": [{"path": "data[0].date", "equals": "2022-10-14"}, {"path": "data[0].price", "equals": 28400000}, {"path": "$text", "notMatches": "\"[^\"]*(owner|buyer|seller|name|navn|cpr|cvr|deed|skoede|koeber|saelger)[^\"]*\":", "why": "no identity fields"}]},
+  {"id": "gt_unknown", "tool": "get_trades", "args": {"bfe": "999999999"}, "expect": [{"path": "reason", "equals": "not_found"}]},
+  {"id": "gt_no_oauth", "tool": "get_trades", "args": {"bfe": "3451459"}, "expect": [{"path": "reason", "equals": "missing_credentials"}, {"path": "detail", "matches": "EJF"}, {"path": "detail", "matches": "Do not ask the user to paste"}], "env": "no_credentials"}
+]

@@ -1,0 +1,7 @@
+[
+  {"id": "te_low", "tool": "get_terrain", "args": {"query": "Fyrvej 36, 9990 Skagen"}, "expect": [{"path": "data.terrainM", "range": [1.5, 3.0]}, {"path": "data.datum", "equals": "DVR90"}, {"path": "data.lookupPoint", "equals": "building"}]},
+  {"id": "te_normal", "tool": "get_terrain", "args": {"query": "Egeskovvej 41, 8800 Viborg"}, "expect": [{"path": "data.terrainM", "range": [29.3, 30.3]}]},
+  {"id": "te_no_address", "tool": "get_terrain", "args": {"bfe": "1329894"}, "expect": [{"path": "status", "equals": "ok", "why": "S2: no bfe input"}, {"path": "data.lookupPoint", "equals": "parcel"}, {"path": "data.terrainM", "range": [0, 200]}]},
+  {"id": "te_no_credentials", "tool": "get_terrain", "args": {"query": "Egeskovvej 41, 8800 Viborg"}, "expect": [{"path": "reason", "equals": "missing_credentials"}], "env": "no_credentials"},
+  {"id": "te_not_found", "tool": "get_terrain", "args": {"query": "Aqqusinersuaq 1, 3900 Nuuk"}, "expect": [{"path": "detail", "matches": "Only addresses in Denmark"}]}
+]

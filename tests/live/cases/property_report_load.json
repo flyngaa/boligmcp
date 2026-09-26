@@ -1,0 +1,12 @@
+[
+  {"id": "load_0", "tool": "property_report", "args": {"query": "Egeskovvej 41, 8800 Viborg"}, "stable": false, "expect": [{"path": "missing[*].source", "notMatches": "^dst$|\"dst\"", "why": "statistics lost under load"}, {"maxMs": 20000}]},
+  {"id": "load_1", "tool": "property_report", "args": {"query": "Frederiksberg Allé 10, 1., 1820 Frederiksberg C"}, "stable": false, "expect": [{"path": "missing[*].source", "notMatches": "^dst$|\"dst\"", "why": "statistics lost under load"}, {"maxMs": 20000}]},
+  {"id": "load_2", "tool": "property_report", "args": {"query": "Egeskov Gade 18, 5772 Kværndrup"}, "stable": false, "expect": [{"path": "missing[*].source", "notMatches": "^dst$|\"dst\"", "why": "statistics lost under load"}, {"maxMs": 20000}]},
+  {"id": "load_3", "tool": "property_report", "args": {"query": "Lodbergsvej 10, Søndervig, 6950 Ringkøbing"}, "stable": false, "expect": [{"path": "missing[*].source", "notMatches": "^dst$|\"dst\"", "why": "statistics lost under load"}, {"maxMs": 20000}]},
+  {"id": "load_4", "tool": "property_report", "args": {"query": "Levantkaj 4, 2150 Nordhavn"}, "stable": false, "expect": [{"path": "missing[*].source", "notMatches": "^dst$|\"dst\"", "why": "statistics lost under load"}, {"maxMs": 20000}]},
+  {"id": "load_5", "tool": "property_report", "args": {"query": "Gudrunsvej 8, 8220 Brabrand"}, "stable": false, "expect": [{"path": "missing[*].source", "notMatches": "^dst$|\"dst\"", "why": "statistics lost under load"}, {"maxMs": 20000}]},
+  {"id": "load_6", "tool": "property_report", "args": {"query": "Vesterbrogade 3, 1620 København V"}, "stable": false, "expect": [{"path": "missing[*].source", "notMatches": "^dst$|\"dst\"", "why": "statistics lost under load"}, {"maxMs": 20000}]},
+  {"id": "load_7", "tool": "property_report", "args": {"query": "Grønbjergvej 28, Grøntoft, 6971 Spjald"}, "stable": false, "expect": [{"path": "missing[*].source", "notMatches": "^dst$|\"dst\"", "why": "statistics lost under load"}, {"maxMs": 20000}]},
+  {"id": "load_8", "tool": "property_report", "args": {"query": "Klitrosevej 3, 6950 Ringkøbing"}, "stable": false, "expect": [{"path": "missing[*].source", "notMatches": "^dst$|\"dst\"", "why": "statistics lost under load"}, {"maxMs": 20000}]},
+  {"id": "load_9", "tool": "property_report", "args": {"query": "Fyrvej 36, 9990 Skagen"}, "stable": false, "expect": [{"path": "missing[*].source", "notMatches": "^dst$|\"dst\"", "why": "statistics lost under load"}, {"maxMs": 20000}]}
+]
