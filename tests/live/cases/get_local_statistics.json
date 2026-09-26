@@ -1,0 +1,7 @@
+[
+  {"id": "lo_house", "tool": "get_local_statistics", "args": {"query": "Egeskovvej 41, 8800 Viborg"}, "expect": [{"path": "parish.data.level", "equals": "parish"}, {"path": "parish.data.areaName", "equals": "Dollerup"}, {"path": "market.data.level", "equals": "landsdel"}, {"path": "market.data.stats[0].label", "matches": "enfamiliehuse"}]},
+  {"id": "lo_apartment", "tool": "get_local_statistics", "args": {"query": "Frederiksberg Allé 10, 1., 1820 Frederiksberg C"}, "expect": [{"path": "market.data.stats[0].label", "matches": "ejerlejligheder"}]},
+  {"id": "lo_summer", "tool": "get_local_statistics", "args": {"query": "Klitrosevej 3, 6950 Ringkøbing"}, "expect": [{"path": "market.data.stats[0].label", "matches": "sommerhuse"}]},
+  {"id": "lo_commercial", "tool": "get_local_statistics", "args": {"query": "Levantkaj 4, 2150 Nordhavn"}, "expect": [{"path": "market.data", "absent": true}, {"path": "market.reason", "matches": "Ingen prisstatistik"}]},
+  {"id": "lo_no_credentials", "tool": "get_local_statistics", "args": {"query": "Egeskovvej 41, 8800 Viborg"}, "expect": [{"path": "reason", "equals": "missing_credentials"}], "env": "no_credentials"}
+]

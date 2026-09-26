@@ -1,0 +1,7 @@
+[
+  {"id": "gl_address", "tool": "get_property_location", "args": {"bfe": "3451459"}, "expect": [{"path": "data.hasStreetAddress", "equals": true}, {"path": "data.houseNumberId", "equals": "0a3f5098-c488-32b8-e044-0003ba298018"}]},
+  {"id": "gl_condo", "tool": "get_property_location", "args": {"bfe": "189290"}, "expect": [{"path": "data.hasStreetAddress", "equals": true}, {"path": "data.addressId", "equals": "604f8d70-a53a-4337-bc05-2c4f217126af"}]},
+  {"id": "gl_none", "tool": "get_property_location", "args": {"bfe": 1329894}, "expect": [{"path": "data.hasStreetAddress", "equals": false}, {"path": "data.designation", "equals": "Haundrupvej 3X"}]},
+  {"id": "gl_unknown", "tool": "get_property_location", "args": {"bfe": "999999999"}, "expect": [{"path": "reason", "equals": "not_found"}]},
+  {"id": "gl_no_credentials", "tool": "get_property_location", "args": {"bfe": "3451459"}, "expect": [{"path": "reason", "equals": "missing_credentials"}], "env": "no_credentials"}
+]

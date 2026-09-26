@@ -20,39 +20,25 @@ pnpm build
 node dist/index.js
 ```
 
-### Claude Desktop / Cursor / Claude Code
+### Credentials: bring your own
 
-```json
-{
-  "mcpServers": {
-    "boligmcp": {
-      "command": "npx",
-      "args": ["-y", "boligmcp"],
-      "env": {
-        "DATAFORDELER_API_KEY": "your-key"
-      }
-    }
-  }
-}
-```
+Bolig-MCP never ships with keys. Each user adds their own, outside the chat:
 
-Local checkout:
+- **Claude Desktop (MCP bundle):** install the `.mcpb`; Claude Desktop asks for the keys at install and masks them (see `manifest.json`).
+- **Claude Code, Cursor and other clients:** run once in a terminal:
 
-```json
-{
-  "mcpServers": {
-    "boligmcp": {
-      "command": "node",
-      "args": ["/absolute/path/to/boligmcp/dist/index.js"],
-      "env": {
-        "DATAFORDELER_API_KEY": "your-key"
-      }
-    }
-  }
-}
-```
+  ```bash
+  npx -y boligmcp setup
+  ```
 
-Copy `.env.example` to `.env` when running from a checkout. Missing keys never crash the server; the matching source returns `unavailable`.
+  It asks for each key with hidden input, checks the Datafordeleren key against the API and saves it to `~/.config/boligmcp/credentials.json` (mode 600). `npx -y boligmcp setup --show` shows what is set, masked.
+- **Or** set env vars in the client config. Env wins over the credentials file.
+
+  ```bash
+  claude mcp add --scope user boligmcp -e DATAFORDELER_API_KEY=<your key> -- npx -y boligmcp
+  ```
+
+When a key is missing, the tools say which source is affected and how to get access, and the server instructs the model never to ask for keys in the chat. A `.env` file is only read when `BOLIGMCP_ENV_FILE` points to it (used by `pnpm dev`). The cache lives in `~/.cache/boligmcp/` unless `CACHE_PATH` is set.
 
 ## Tools
 
@@ -61,16 +47,31 @@ Copy `.env.example` to `.env` when running from a checkout. Missing keys never c
 | `search_address` | Free-text Danish address → DAR ids |
 | `resolve_property` | Address id → BFE, cadastral ids, coordinate |
 | `get_buildings` | BBR buildings and units |
-| `get_parcel` | Matrikel parcels for a BFE |
+| `get_parcel` | Matrikel parcels for a BFE, including fredskov, strandbeskyttelse and klitfredning |
 | `get_valuation` | Official VUR values and history |
-| `get_trades` | Non-protected EJF trades / ownership type |
-| `get_admin_areas` | Municipality, region, parish, districts |
-| `get_plans` | Local plans, municipal frameworks, zone |
-| `get_environment` | Soil, §3 nature, conservation, coastal/forest lines |
+| `get_trades` | Sale prices and dates from EJF (your own approved OAuth access; no names) |
+| `get_admin_areas` | Municipality, region, parish, court and police districts |
+| `get_plans` | Local plans, subareas, frameworks with building rights, zone, plan proposals |
+| `get_site_conditions` | Heat supply, sewer, flood/erosion, groundwater, noise, livestock, planned roads/facilities, heritage |
+| `get_environment` | Soil contamination on the property vs nearby, coastal zone |
+| `get_heritage` | SAVE value 1–9 and listed status (FBB) |
+| `get_terrain` | Terrain height (DVR90), highest surface nearby, and whether the plot lies in a hollow |
+| `get_property_location` | EBR location for a BFE: street address, or a text designation when there is no address |
+| `get_aerial_photo` | Spring orthophoto and a cropped skråfoto facade (needs a Dataforsyningen token) |
+| `get_nearby_services` | Distance to nearest school, daycare, shop, doctor and sports hall (BBR) |
+| `get_local_statistics` | Parish statistics and regional price index / average sale price |
+| `watch_property` / `check_watchlist` / `list_watchlist` / `unwatch_property` | Watch properties and report what changed since the last check |
 | `get_energy_label` | Energimærke (needs EMOData) |
 | `get_area_stats` | Municipality statistics from DST |
-| `property_report` | Parallel combined report (~4k tokens) |
+| `property_report` | Combined report with investor flags (~4–8k tokens) |
+| `screen_properties` | Up to 25 addresses side by side |
 | `list_sources` | Which sources are configured |
+
+BBR labels come from the official Danish code lists (`pnpm codes:update` regenerates them). Plans and overlays are looked up at the main building's BBR coordinate, which lies inside the plot, not at the address point by the road.
+
+### Investor flags
+
+`property_report` and `screen_properties` add `flags`, each with `severity` (`high`, `medium`, `info`), a Danish `title` and `detail`, and the sources behind it. They are signals for further checks, not advice. The building rights headroom is an estimate: it compares BBR floor area (basement and outbuildings excluded) with the framework's max plot ratio for the matching usage.
 
 Every tool returns a `SourceResult`: either `{ status: "ok", source, fetchedAt, data }` or `{ status: "unavailable", source, reason, detail }`.
 
@@ -78,7 +79,7 @@ Every tool returns a `SourceResult`: either `{ status: "ok", source, fetchedAt, 
 
 | Tier | Meaning | Examples |
 |---|---|---|
-| T0 | Open | Adressevælgeren, Plandata, Miljøportal, DST |
+| T0 | Open | Adressevælgeren, Plandata, Miljøportal, FBB, DST |
 | T1 | Free key | Datafordeleren GraphQL, Dataforsyningen |
 | T2 | Agreement | EMOData energy labels |
 | T3 / X | Not built | Tingbog; private owner names |
@@ -89,11 +90,14 @@ See [docs/credentials.md](docs/credentials.md) for how to get each key.
 
 | Variable | Required for |
 |---|---|
-| `DATAFORDELER_API_KEY` | BFE chain, BBR, VUR, EJF, DAGI |
+| `DATAFORDELER_API_KEY` | BFE chain, BBR, VUR, DAGI |
+| `DATAFORDELER_OAUTH_CLIENT_ID` / `_SECRET` | Sale prices from EJF, after Geodatastyrelsen approves your own request. Never owner names |
 | `ADRESSEVAELGER_TOKEN` | Optional; defaults to `adressevaelger123` |
 | `EMODATA_USER` / `EMODATA_PASSWORD` | Energy labels |
-| `DATAFORSYNINGEN_TOKEN` | Optional imagery (not in core tools) |
-| `CACHE_PATH` | SQLite cache file (default `./cache.db`) |
+| `DATAFORSYNINGEN_TOKEN` | `get_aerial_photo` |
+| `CACHE_PATH` | SQLite cache file (default `~/.cache/boligmcp/cache.db`) |
+| `BOLIGMCP_CREDENTIALS_FILE` | Override the credentials file path |
+| `BOLIGMCP_ENV_FILE` | Development only: load this `.env` file |
 
 ## Development
 
@@ -106,8 +110,12 @@ pnpm dev
 After you have a Datafordeleren key:
 
 ```bash
-pnpm exec tsx scripts/introspect-datafordeler.ts
+pnpm smoke "Egeskovvej 41, 8800 Viborg"   # live property_report
+pnpm live                                  # live regression suite (docs/test-plan.md); pnpm live resolve_property, pnpm live --group core
+pnpm exec tsx scripts/probe-fields.ts BBR BBR_Bygning '{"id_lokalId":{"eq":"<id>"}}' byg057Opvarmningsmiddel
 ```
+
+Introspection is disabled on Datafordeleren, so `probe-fields.ts` asks for one field at a time and reports which exist.
 
 ## Licence
 

@@ -1,0 +1,12 @@
+[
+  {"id": "gp_single", "tool": "get_parcel", "args": {"bfe": "3451459"}, "expect": [{"path": "data.length", "equals": 1}, {"path": "data[0].cadastralNumber", "equals": "1gf"}, {"path": "data[0].registeredArea", "equals": 811}]},
+  {"id": "gp_pending", "tool": "get_parcel", "args": {"bfe": "10229320"}, "expect": [{"path": "data.length", "equals": 1, "why": "pending parcel version counted twice"}, {"path": "data[0].registeredArea", "equals": 1640}]},
+  {"id": "gp_multi", "tool": "get_parcel", "args": {"bfe": "9519007"}, "expect": [{"path": "data.length", "equals": 8, "stable": false}, {"path": "data[*].notes", "contains": ["Fredskov"]}]},
+  {"id": "gp_condo", "tool": "get_parcel", "args": {"bfe": "189290"}, "expect": [{"path": "data[0].cadastralNumber", "equals": "76f"}, {"path": "data[0].registeredArea", "equals": 1182}, {"path": "data[0].registeredArea", "sameAs": "gp_condo_main:data[0].registeredArea"}]},
+  {"id": "gp_condo_main", "tool": "get_parcel", "args": {"bfe": 100025920}, "expect": [{"path": "data[0].cadastralNumber", "equals": "76f"}]},
+  {"id": "gp_no_address", "tool": "get_parcel", "args": {"bfe": "1329894"}, "expect": [{"path": "data.length", "equals": 2}, {"path": "data[*].notes", "matches": "Fredskov"}]},
+  {"id": "gp_unknown", "tool": "get_parcel", "args": {"bfe": "999999999"}, "expect": [{"path": "status", "equals": "unavailable"}, {"path": "reason", "equals": "not_found"}]},
+  {"id": "gp_bad_bfe", "tool": "get_parcel", "args": {"bfe": "12.5"}, "expect": [{"path": "$isError", "equals": true}, {"path": "$text", "matches": "whole number"}]},
+  {"id": "gp_missing_bfe", "tool": "get_parcel", "args": {}, "expect": [{"path": "$isError", "equals": true}, {"path": "$text", "matches": "bfe"}]},
+  {"id": "gp_no_credentials", "tool": "get_parcel", "args": {"bfe": "3451459"}, "expect": [{"path": "reason", "equals": "missing_credentials"}], "env": "no_credentials"}
+]

@@ -12,11 +12,6 @@ export function etrs89ToWgs84(x: number, y: number): { lat: number; lon: number 
   return { lat, lon };
 }
 
-export function wgs84ToEtrs89(lat: number, lon: number): { x: number; y: number } {
-  const [x, y] = proj4(WGS84, "EPSG:25832", [lon, lat]);
-  return { x, y };
-}
-
 export function coordinateFromEtrs89(x: number, y: number): Coordinate {
   return {
     epsg25832: { x, y },
@@ -30,9 +25,4 @@ export function pointWkt(x: number, y: number): string {
 
 export function bboxAround(x: number, y: number, meters = 5): [number, number, number, number] {
   return [x - meters, y - meters, x + meters, y + meters];
-}
-
-export function parsePostnr(value: unknown): string | undefined {
-  if (value === undefined || value === null) return undefined;
-  return String(value).padStart(4, "0");
 }

@@ -1,0 +1,10 @@
+[
+  {"id": "en_on_property_estate", "tool": "get_environment", "args": {"query": "Egeskov Gade 18, 5772 Kværndrup"}, "expect": [{"path": "data.items[*].onProperty", "contains": true}, {"path": "$text", "matches": "\"localityNumber\":\"477-90000\"[^}]*\"onProperty\":true"}]},
+  {"id": "en_on_property_school", "tool": "get_environment", "args": {"query": "Levantkaj 4, 2150 Nordhavn"}, "expect": [{"path": "data.items[*].onProperty", "contains": true}, {"path": "data.items[*].details", "notMatches": "\"[^\"]*;[^\"]*;[^\"]*;[^\"]*\"", "why": "certificate links capped at 3"}, {"maxTokens": 1500}, {"path": "data.parcelsChecked", "equals": true}]},
+  {"id": "en_nearby", "tool": "get_environment", "args": {"query": "Borgergade 1, 7200 Grindsted"}, "expect": [{"path": "data.items[*].onProperty", "notMatches": "true"}, {"path": "data.items", "present": true}, {"path": "data.items[*].name", "notMatches": "\\n"}]},
+  {"id": "en_coastal", "tool": "get_environment", "args": {"query": "Fyrvej 36, 9990 Skagen"}, "expect": [{"path": "data.items[*].category", "contains": "^coastal_protection$"}]},
+  {"id": "en_condo", "tool": "get_environment", "args": {"query": "Frederiksberg Allé 10, 1., 1820 Frederiksberg C"}, "expect": [{"path": "status", "equals": "ok"}, {"path": "data.items[*].onProperty", "notMatches": "true", "why": "76f is not a listed locality parcel", "stable": false}]},
+  {"id": "en_clean", "tool": "get_environment", "args": {"query": "Egeskovvej 41, 8800 Viborg"}, "expect": [{"path": "data.items", "equals": []}]},
+  {"id": "en_no_address", "tool": "get_environment", "args": {"bfe": "1329894"}, "expect": [{"path": "status", "equals": "ok"}]},
+  {"id": "en_no_credentials", "tool": "get_environment", "args": {"query": "Levantkaj 4, 2150 Nordhavn"}, "env": "no_credentials", "expect": [{"path": "data.parcelsChecked", "equals": false, "why": "S1: own locality shown as nearby without warning"}, {"path": "data.note", "matches": "matrikler er ukendte"}]}
+]

@@ -1,0 +1,5 @@
+[
+  {"id": "ls_sources", "tool": "list_sources", "args": {}, "expect": [{"path": "sources.length", "range": [10, 30]}, {"path": "sources[*].tier", "notMatches": "null"}, {"path": "sources[*].configured", "contains": true}, {"path": "$text", "notMatches": "[A-Za-z0-9_\\-]{40,}", "why": "no credential values"}]},
+  {"id": "ls_no_credentials", "tool": "list_sources", "args": {}, "env": "no_credentials", "expect": [{"path": "$text", "matches": "\"id\":\"bbr\"[^}]*\"configured\":false"}, {"path": "$text", "notMatches": "[A-Za-z0-9_\\-]{40,}"}]},
+  {"id": "ls_unknown_param", "tool": "list_sources", "args": {"verbose": true}, "expect": [{"path": "$isError", "equals": true}]}
+]

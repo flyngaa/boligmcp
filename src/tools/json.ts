@@ -1,14 +1,6 @@
-import type { SourceResult } from "../types.js";
-
+/** Compact JSON: indentation adds about a third to every response's token count and helps no model read it. */
 export function asText(payload: unknown): { content: Array<{ type: "text"; text: string }> } {
   return {
-    content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
+    content: [{ type: "text", text: JSON.stringify(payload) }],
   };
-}
-
-export function missingIds(result: SourceResult<unknown>, need: string): ReturnType<typeof asText> {
-  return asText({
-    error: need,
-    resolve: result,
-  });
 }

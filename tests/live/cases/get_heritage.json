@@ -1,0 +1,7 @@
+[
+  {"id": "he_own", "tool": "get_heritage", "args": {"query": "Nyhavn 18"}, "expect": [{"path": "$text", "matches": "\"address\":\"Nyhavn 18\",\"saveValue\":1,\"listed\":true,\"listingStatus\":1,\"atProperty\":true"}, {"path": "$text", "notMatches": "\"address\":\"Nyhavn (1[024]|20)\"[^}]*\"atProperty\":true"}]},
+  {"id": "he_town", "tool": "get_heritage", "args": {"query": "Torvet 1, 6760 Ribe"}, "expect": [{"path": "$text", "matches": "\"address\":\"Torvet 1\"[^}]*\"atProperty\":true"}, {"path": "$text", "matches": "^(?!.*\"atProperty\":true.*\"atProperty\":true)", "why": "only Torvet 1 at the property"}]},
+  {"id": "he_no_entry", "tool": "get_heritage", "args": {"query": "Slotsgaden 5, Møgeltønder, 6270 Tønder"}, "expect": [{"path": "data.items[*].atProperty", "notMatches": "true"}]},
+  {"id": "he_estate", "tool": "get_heritage", "args": {"query": "Egeskov Gade 26, 5772 Kværndrup"}, "expect": [{"path": "data.items[0].listed", "equals": true}, {"path": "data.items[0].atProperty", "equals": true}]},
+  {"id": "he_none", "tool": "get_heritage", "args": {"query": "Egeskovvej 41, 8800 Viborg"}, "expect": [{"path": "data.items", "equals": []}]}
+]

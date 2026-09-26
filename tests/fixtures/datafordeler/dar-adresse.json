@@ -1,0 +1,14 @@
+{
+  "DAR_Adresse": {
+    "nodes": [
+      {
+        "id_lokalId": "0ef9e32f-5541-49b5-805b-4af2b4d4bd38",
+        "adressebetegnelse": "Sankt Kjelds Plads 11, 2100 København Ø",
+        "etagebetegnelse": "",
+        "doerbetegnelse": "",
+        "husnummer": "0a3f507a-eedb-32b8-e044-0003ba298018",
+        "status": "3"
+      }
+    ]
+  }
+}

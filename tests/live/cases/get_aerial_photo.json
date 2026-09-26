@@ -1,0 +1,5 @@
+[
+  {"id": "ap_house", "tool": "get_aerial_photo", "args": {"query": "Egeskovvej 41, 8800 Viborg"}, "expect": [{"path": "status", "equals": "ok"}, {"path": "lookupPoint", "equals": "building"}, {"path": "$images", "range": [1, 2]}, {"path": "$text", "notMatches": "token=|[?&]token|apikey"}]},
+  {"id": "ap_no_address", "tool": "get_aerial_photo", "args": {"bfe": "1329894"}, "expect": [{"path": "lookupPoint", "equals": "parcel"}, {"path": "$images", "range": [1, 2]}, {"path": "$text", "notMatches": "token=|[?&]token|apikey"}]},
+  {"id": "ap_no_credentials", "tool": "get_aerial_photo", "args": {"query": "Egeskovvej 41, 8800 Viborg"}, "expect": [{"path": "reason", "equals": "missing_credentials"}, {"path": "detail", "matches": "Do not ask the user to paste"}], "env": "no_credentials"}
+]

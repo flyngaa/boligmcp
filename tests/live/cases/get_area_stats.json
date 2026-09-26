@@ -1,0 +1,5 @@
+[
+  {"id": "st_villa", "tool": "get_area_stats", "args": {"query": "Egeskovvej 41, 8800 Viborg"}, "expect": [{"path": "data.level", "equals": "municipality"}, {"path": "data.municipalityCode", "equals": "0791", "why": "must match DAGI"}, {"path": "data.municipalityCode", "sameAs": "aa_villa:data.municipalityCode"}, {"path": "data.stats[*].key", "contains": "^population$"}, {"path": "data.stats[*].value", "notMatches": "^$"}, {"path": "data.failedTables", "absent": true, "stable": false}]},
+  {"id": "st_small", "tool": "get_area_stats", "args": {"query": "Christiansø 1, 3760 Gudhjem"}, "expect": [{"path": "data.municipalityName", "equals": "Christiansø"}, {"path": "$text", "notMatches": "\"value\":0[,}]", "why": "nulls, not zeros"}]},
+  {"id": "st_no_credentials", "tool": "get_area_stats", "args": {"query": "Egeskovvej 41, 8800 Viborg"}, "expect": [{"path": "status", "equals": "ok"}, {"path": "data.municipalityCode", "equals": "0791"}], "env": "no_credentials"}
+]
