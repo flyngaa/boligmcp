@@ -15,7 +15,7 @@ import {
 
 const WFS = "https://geoserver.plandata.dk/geoserver/wfs";
 
-type LookupPoint = "building" | "address";
+type LookupPoint = "building" | "address" | "parcel";
 
 const PLAN_LAYERS: { typeName: string; type: PlanItem["type"] }[] = [
   { typeName: "pdk:theme_pdk_lokalplan_vedtaget", type: "local_plan" },
@@ -217,7 +217,20 @@ interface SiteLayer {
   details?: (p: Record<string, unknown> | undefined) => string | undefined;
 }
 
-const generic = (p: Record<string, unknown> | undefined) => prop(p, "bem", "plannavn", "plannr", "temanavn");
+/** "23er058": a plan's own reference code, not something a reader can use as the value. */
+const isBareCode = (text: string) => !/\s/.test(text) && /\d/.test(text) && text.length <= 16;
+
+/** The remark, or the plan it comes from when the remark is only a code (the code then goes in details). */
+const generic = (p: Record<string, unknown> | undefined) => {
+  const remark = prop(p, "bem");
+  if (remark && !isBareCode(remark)) return remark;
+  return prop(p, "plannavn", "plangrund", "temanavn") ?? remark ?? prop(p, "plannr");
+};
+
+const genericCode = (p: Record<string, unknown> | undefined) => {
+  const remark = prop(p, "bem");
+  return remark && isBareCode(remark) && prop(p, "plannavn", "plangrund", "temanavn") ? `kode ${remark}` : undefined;
+};
 
 export const SITE_LAYERS: SiteLayer[] = [
   {
@@ -268,11 +281,11 @@ export const SITE_LAYERS: SiteLayer[] = [
     label: "Spildevandsplan",
     value: (p) => prop(p, "plannavn"),
   },
-  { typeName: "pdk:theme_pdk_oversvoemerosion_vedtaget", category: "flood_or_erosion_risk", label: "Risiko for oversvømmelse eller erosion", value: generic },
-  { typeName: "pdk:theme_pdk_terraennaertgrundvand_vedtaget", category: "near_surface_groundwater", label: "Terrænnært grundvand", value: generic },
-  { typeName: "pdk:theme_pdk_lavbundsareal_vedtaget", category: "low_lying_land", label: "Lavbundsareal", value: generic },
-  { typeName: "pdk:theme_pdk_stoejbelastetareal_vedtaget", category: "noise_affected_area", label: "Støjbelastet areal", value: generic },
-  { typeName: "pdk:theme_pdk_storehusdyrbrug_vedtaget", category: "large_livestock_farm_area", label: "Område til store husdyrbrug", value: generic },
+  { typeName: "pdk:theme_pdk_oversvoemerosion_vedtaget", category: "flood_or_erosion_risk", label: "Risiko for oversvømmelse eller erosion", value: generic, details: genericCode },
+  { typeName: "pdk:theme_pdk_terraennaertgrundvand_vedtaget", category: "near_surface_groundwater", label: "Terrænnært grundvand", value: generic, details: genericCode },
+  { typeName: "pdk:theme_pdk_lavbundsareal_vedtaget", category: "low_lying_land", label: "Lavbundsareal", value: generic, details: genericCode },
+  { typeName: "pdk:theme_pdk_stoejbelastetareal_vedtaget", category: "noise_affected_area", label: "Støjbelastet areal", value: generic, details: genericCode },
+  { typeName: "pdk:theme_pdk_storehusdyrbrug_vedtaget", category: "large_livestock_farm_area", label: "Område til store husdyrbrug", value: generic, details: genericCode },
   {
     typeName: "pdk:theme_pdk_planlagttrafikanlaeg_vedtaget",
     category: "planned_road_or_rail",
@@ -287,10 +300,10 @@ export const SITE_LAYERS: SiteLayer[] = [
     radiusM: 300,
     value: generic,
   },
-  { typeName: "pdk:theme_pdk_tekniskanlaegkonsekvensomraade_vedtaget", category: "technical_facility_buffer", label: "Konsekvensområde om teknisk anlæg", value: generic },
-  { typeName: "pdk:theme_pdk_transformationsomraade_vedtaget", category: "transformation_area", label: "Transformationsområde", value: generic },
-  { typeName: "pdk:theme_pdk_kulturhistoriskbevaringsvaerdi_vedtaget", category: "cultural_heritage_value", label: "Kulturhistorisk bevaringsværdi", value: generic },
-  { typeName: "pdk:theme_pdk_vaerdifuldtkulturmiljoe_vedtaget", category: "valuable_cultural_environment", label: "Værdifuldt kulturmiljø", value: generic },
+  { typeName: "pdk:theme_pdk_tekniskanlaegkonsekvensomraade_vedtaget", category: "technical_facility_buffer", label: "Konsekvensområde om teknisk anlæg", value: generic, details: genericCode },
+  { typeName: "pdk:theme_pdk_transformationsomraade_vedtaget", category: "transformation_area", label: "Transformationsområde", value: generic, details: genericCode },
+  { typeName: "pdk:theme_pdk_kulturhistoriskbevaringsvaerdi_vedtaget", category: "cultural_heritage_value", label: "Kulturhistorisk bevaringsværdi", value: generic, details: genericCode },
+  { typeName: "pdk:theme_pdk_vaerdifuldtkulturmiljoe_vedtaget", category: "valuable_cultural_environment", label: "Værdifuldt kulturmiljø", value: generic, details: genericCode },
 ];
 
 export async function getSiteConditionsAt(
@@ -326,8 +339,16 @@ export async function getSiteConditionsAt(
   if (failedLayers.length === SITE_LAYERS.length) {
     return unavailable("plandata", "upstream_error", "No Plandata site layers answered");
   }
+  // Two plan objects can carry the same remark (Hvide Sande has two noise areas coded 23er058): list it once.
+  const seen = new Set<string>();
+  const items = groups.flat().filter((item) => {
+    const key = JSON.stringify(item);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
   return ok("plandata", {
-    items: groups.flat(),
+    items,
     checkedLayers: SITE_LAYERS.length - failedLayers.length,
     failedLayers,
     lookupPoint: options.lookupPoint,

@@ -17,7 +17,11 @@ export interface WatchSnapshot {
   dwellingArea?: number | null;
   tenure?: string;
   flags: string[];
+  /** Parts whose source did not answer; they are neither compared nor overwritten. */
+  unknown?: SnapshotPart[];
 }
+
+type SnapshotPart = "valuation" | "lastSale" | "plans" | "buildings" | "flags";
 
 export interface WatchEntry {
   id: string;
@@ -93,13 +97,57 @@ export function snapshotOf(data: PropertyData): WatchSnapshot {
       .filter((flag) => flag.severity !== "info")
       .map((flag) => `${flag.severity}: ${flag.title}`)
       .sort(),
+    ...unknownParts(data),
   };
+}
+
+/**
+ * A source that failed, or was not asked (no BFE without a Datafordeleren key), leaves its part unknown, not empty.
+ * Only an answer of "none" (not_found) counts as none.
+ */
+function unknownParts(data: PropertyData): { unknown?: SnapshotPart[] } {
+  const failed = (result: { status: string; reason?: string } | undefined) =>
+    result === undefined || (result.status === "unavailable" && result.reason !== "not_found");
+  const parts: SnapshotPart[] = [];
+  if (failed(data.valuation)) parts.push("valuation");
+  if (failed(data.trades)) parts.push("lastSale");
+  if (failed(data.plans)) parts.push("plans");
+  if (failed(data.buildings)) parts.push("buildings");
+  const flagSources = [data.buildings, data.parcel, data.valuation, data.plans, data.site, data.environment, data.heritage, data.trades, data.terrain];
+  if (flagSources.some(failed)) parts.push("flags");
+  return parts.length ? { unknown: parts } : {};
+}
+
+/** The new snapshot, with parts its sources could not give taken from the old one. */
+export function mergeSnapshots(before: WatchSnapshot, after: WatchSnapshot): WatchSnapshot {
+  const unknown = after.unknown ?? [];
+  if (!unknown.length) return after;
+  const merged: WatchSnapshot = { ...after };
+  if (unknown.includes("valuation")) merged.valuation = before.valuation;
+  if (unknown.includes("lastSale")) merged.lastSale = before.lastSale;
+  if (unknown.includes("plans")) {
+    merged.plans = before.plans;
+    merged.proposals = before.proposals;
+  }
+  if (unknown.includes("buildings")) {
+    merged.buildings = before.buildings;
+    merged.dwellingArea = before.dwellingArea;
+    merged.tenure = before.tenure;
+  }
+  if (unknown.includes("flags")) merged.flags = before.flags;
+  // Still unknown only where the old snapshot did not know either.
+  const stillUnknown = unknown.filter((part) => before.unknown?.includes(part));
+  if (stillUnknown.length) merged.unknown = stillUnknown;
+  else delete merged.unknown;
+  return merged;
 }
 
 const kr = (value: number | null | undefined) => (value ? `${Math.round(value).toLocaleString("da-DK")} kr.` : "ukendt");
 
 /** Human-readable (Danish) list of what changed between two snapshots. */
-export function diffSnapshots(before: WatchSnapshot, after: WatchSnapshot): string[] {
+export function diffSnapshots(before: WatchSnapshot, rawAfter: WatchSnapshot): string[] {
+  // A part a source could not give now is compared as it was, so a failed lookup never reads as a removal.
+  const after = mergeSnapshots(before, rawAfter);
   const changes: string[] = [];
   const b = before.valuation;
   const a = after.valuation;
@@ -240,16 +288,31 @@ export async function checkWatchlist(options: { update?: boolean } = {}) {
   } catch (error) {
     return unreadable(error);
   }
-  const results = [];
+  const results: Array<{ designation: string; since: string; changes?: string[]; notChecked?: SnapshotPart[]; error?: string }> = [];
   const next: WatchEntry[] = [];
   for (const entry of entries) {
     try {
       const data = await collect(entry.query);
-      const snapshot = snapshotOf(data);
-      const changes = data.idsResult.status === "ok" ? diffSnapshots(entry.snapshot, snapshot) : [];
-      results.push({ designation: entry.designation ?? entry.query, since: entry.snapshot.takenAt, changes });
+      if (data.idsResult.status !== "ok") {
+        // Not "no changes": the property could not be looked up at all this time.
+        results.push({
+          designation: entry.designation ?? entry.query,
+          since: entry.snapshot.takenAt,
+          error: `Not checked: ${data.idsResult.detail ?? data.idsResult.reason}`,
+        });
+        next.push(entry);
+        continue;
+      }
+      const fresh = snapshotOf(data);
+      const snapshot = mergeSnapshots(entry.snapshot, fresh);
+      results.push({
+        designation: entry.designation ?? entry.query,
+        since: entry.snapshot.takenAt,
+        changes: diffSnapshots(entry.snapshot, fresh),
+        ...(fresh.unknown ? { notChecked: fresh.unknown } : {}),
+      });
       const upgraded = data.ids?.bfe && entry.id !== data.ids.bfe ? { id: data.ids.bfe, addressId: data.ids.addressId ?? entry.addressId } : {};
-      next.push(update && data.idsResult.status === "ok" ? { ...entry, ...upgraded, snapshot } : entry);
+      next.push(update ? { ...entry, ...upgraded, snapshot } : entry);
     } catch (error) {
       results.push({ designation: entry.designation ?? entry.query, since: entry.snapshot.takenAt, error: error instanceof Error ? error.message : String(error) });
       next.push(entry);

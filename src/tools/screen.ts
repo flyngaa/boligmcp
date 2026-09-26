@@ -1,4 +1,4 @@
-import { buildFlags, flagInputFrom } from "../analysis/flags.js";
+import { bfeDwellingArea, buildFlags, flagInputFrom } from "../analysis/flags.js";
 import { collectPropertyData, missingSources, summarize } from "./property-report.js";
 
 export const SCREEN_MAX_ADDRESSES = 25;
@@ -36,10 +36,9 @@ export async function screenProperties(addresses: string[]) {
       const flags = buildFlags(flagInputFrom(data));
       const valuation = data.valuation?.status === "ok" ? data.valuation.data.latestNew : undefined;
       const oldValuation = data.valuation?.status === "ok" && !valuation ? data.valuation.data.latestOld : undefined;
-      const perM2 =
-        valuation?.propertyValue && summary.dwellingArea
-          ? Math.round(valuation.propertyValue / summary.dwellingArea)
-          : undefined;
+      // The valuation is the BFE's: divide by the area the BFE covers, not one rental flat's.
+      const valuedArea = bfeDwellingArea(flagInputFrom(data));
+      const perM2 = valuation?.propertyValue && valuedArea ? Math.round(valuation.propertyValue / valuedArea) : undefined;
       const rights = flags.find((flag) => flag.id === "building_rights");
       const unchecked = [
         ...new Set(

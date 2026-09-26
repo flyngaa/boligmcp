@@ -6,6 +6,7 @@ import {
   searchAddresses,
   type ParsedAddress,
 } from "./sources/adressevaelger.js";
+import { datafordelerUnavailable } from "./sources/datafordeler/client.js";
 import { getPropertyLocation } from "./sources/datafordeler/ebr.js";
 import {
   parcelCentroidFor,
@@ -41,16 +42,17 @@ function townKey(town: string): string {
   return danishSpelling(town).toLowerCase().replace(/\baa/g, "å").split(/\s+/)[0] ?? "";
 }
 
-/** Whether a town named in the query is the found address's postal town or place name. */
+/**
+ * Whether a town named in the query is the found address's postal town or place name ("Frederiksb" counts).
+ * Both sides are respelled the same way: "oe" is ASCII for "ø" in "Koebenhavn" but real in "Boeslunde".
+ */
 function townMatches(town: string, found: ParsedAddress): boolean {
-  const wanted = townKey(town);
-  if (!wanted) return true;
+  const wanted = [townKey(town), town.toLowerCase().replace(/\baa/g, "å").split(/\s+/)[0] ?? ""].filter(Boolean);
+  if (!wanted.length) return true;
   return [found.postalName, found.locality].some((name) =>
-    (name ?? "")
-      .toLowerCase()
-      .replace(/\baa/g, "å")
-      .split(/[\s,]+/)
-      .some((word) => word === wanted),
+    [name ?? "", danishSpelling(name ?? "")]
+      .flatMap((spelling) => spelling.toLowerCase().replace(/\baa/g, "å").split(/[\s,]+/))
+      .some((word) => wanted.some((key) => word === key || (key.length >= 4 && word.startsWith(key)))),
   );
 }
 
@@ -80,6 +82,9 @@ export function matchWarning(query: string, found: string | undefined, hits: Add
   }
   if (asked.postalCode && got.postalCode && asked.postalCode !== got.postalCode) {
     differences.push(`postnummer ${asked.postalCode} blev til ${got.postalCode}`);
+  } else if (asked.postalCode && asked.postalName && !townMatches(asked.postalName, got)) {
+    // "Egeskovvej 41, 8800 Aarhus": the postcode and the town disagree, so either could be the one meant.
+    differences.push(`${asked.postalCode} er ${got.postalName ?? "en anden by"}, ikke ${asked.postalName}`);
   }
   const askedTown = !asked.postalCode ? asked.locality : undefined;
   if (askedTown && !townMatches(askedTown, got)) {
@@ -111,6 +116,14 @@ function withPostcode(asked: ParsedAddress, postcode: string): string {
   return [`${asked.street} ${asked.houseNumber}`, unit, postcode].filter(Boolean).join(", ");
 }
 
+/** A town's postcodes, by its name as typed and then respelled ("Boeslunde" is real, "Koebenhavn" is ASCII). */
+async function townPostcodes(town: string): Promise<Array<{ code: string; name: string }>> {
+  const asTyped = await postcodesForTown(town).catch(() => []);
+  if (asTyped.length) return asTyped;
+  const respelled = danishSpelling(town);
+  return respelled === town ? [] : postcodesForTown(respelled).catch(() => []);
+}
+
 /** Beyond this many postcodes (København K alone has hundreds) a retry per postcode is not worth it. */
 const MAX_TOWN_POSTCODES = 12;
 
@@ -120,18 +133,20 @@ const MAX_TOWN_POSTCODES = 12;
  */
 async function searchInTown(asked: ParsedAddress): Promise<AddressMatch | undefined> {
   if (!asked.street || !asked.houseNumber || !asked.locality || asked.postalCode) return undefined;
-  const codes = await postcodesForTown(danishSpelling(asked.locality)).catch(() => []);
+  const codes = await townPostcodes(asked.locality);
   if (!codes.length || codes.length > MAX_TOWN_POSTCODES) return undefined;
   const results = await Promise.all(codes.map((code) => searchAddresses(withPostcode(asked, code.code), 5)));
-  for (const result of results) {
-    if (result.status !== "ok") continue;
-    const hit = result.data.find((item) => {
-      const parsed = parseDesignation(item.designation);
-      return streetKey(parsed.street) === streetKey(asked.street) && sameText(parsed.houseNumber, asked.houseNumber);
-    });
-    if (hit) return hit;
-  }
-  return undefined;
+  const hits = results.flatMap((result) => (result.status === "ok" ? result.data : []));
+  const wanted = streetKey(asked.street);
+  const sameNumber = (item: AddressMatch) => sameText(parseDesignation(item.designation).houseNumber, asked.houseNumber);
+  const exact = hits.find((item) => sameNumber(item) && streetKey(parseDesignation(item.designation).street) === wanted);
+  if (exact) return exact;
+  // "Slotsgade 5, Møgeltønder" is Slotsgaden 5 there: in the town asked for, a street that differs only by an ending
+  // is likelier than the exact name elsewhere. matchWarning names the street it became.
+  return hits.find((item) => {
+    const key = streetKey(parseDesignation(item.designation).street);
+    return sameNumber(item) && wanted.length >= 4 && (key.startsWith(wanted) || wanted.startsWith(key));
+  });
 }
 
 /**
@@ -143,7 +158,7 @@ export async function suggestionsFor(query: string): Promise<string[]> {
   if (!asked.street) return [];
   let codes = asked.postalCode ? [asked.postalCode] : [];
   if (!codes.length && asked.locality) {
-    codes = (await postcodesForTown(danishSpelling(asked.locality)).catch(() => []))
+    codes = (await townPostcodes(asked.locality))
       .slice(0, MAX_TOWN_POSTCODES)
       .map((item) => item.code);
   }
@@ -208,13 +223,41 @@ async function needsHouseNumber(query: string, street: string): Promise<SourceRe
   );
 }
 
+/** Adressevælgeren alone gives the address but not its BFE; says so, so an empty bfe is not read as "has none". */
+function withoutKey(ids: PropertyIds): SourceResult<PropertyIds> {
+  const missing = datafordelerUnavailable("dar");
+  const detail = missing.status === "unavailable" ? missing.detail : undefined;
+  return ok("adressevaelger", {
+    ...ids,
+    missing: [{ field: "bfe", reason: "missing_credentials", detail: `BFE, cadastral ids and condominium status need Datafordeleren. ${detail ?? ""}`.trim() }],
+  });
+}
+
+/** DAR found the address but no property is registered on it (Christiansø). */
+function withoutBfe(result: SourceResult<PropertyIds>): SourceResult<PropertyIds> {
+  if (result.status !== "ok" || result.data.bfe || result.data.missing) return result;
+  return {
+    ...result,
+    data: {
+      ...result.data,
+      missing: [
+        {
+          field: "bfe",
+          reason: "not_found",
+          detail: "No BFE is registered for this address, so property registers (parcel, valuation, trades) have nothing for it.",
+        },
+      ],
+    },
+  };
+}
+
 async function resolveId(id: string): Promise<SourceResult<PropertyIds>> {
   const dar = await resolveFromAddressId(id);
   if (dar.status === "ok" || dar.reason !== "missing_credentials") return dar;
   // No Datafordeleren key: Adressevælgeren still gives the address, coordinate and house number.
   const lookup = await lookupAddress(id);
   if (lookup.status !== "ok") return lookup as SourceResult<PropertyIds>;
-  return ok("adressevaelger", {
+  return withoutKey({
     addressId: lookup.data.addressId ?? id,
     houseNumberId: lookup.data.houseNumberId,
     accessAddressId: lookup.data.houseNumberId,
@@ -232,7 +275,7 @@ async function resolveHit(hit: AddressMatch, query: string): Promise<SourceResul
   }
   const dar = await resolveFromHouseNumberId(hit.houseNumberId);
   if (dar.status === "ok" || dar.reason !== "missing_credentials") return dar;
-  return ok("adressevaelger", {
+  return withoutKey({
     houseNumberId: hit.houseNumberId,
     accessAddressId: hit.houseNumberId,
     designation: hit.designation,
@@ -272,7 +315,7 @@ export async function resolveProperty(input: {
   if (addressId) {
     const byId = await resolveId(addressId);
     // A stale or mistyped id should not win over a usable address text or BFE.
-    if (byId.status === "ok" || (!query && !bfe)) return byId;
+    if (byId.status === "ok" || (!query && !bfe)) return withoutBfe(byId);
   }
   if (!query && bfe) return resolveBfe(bfe);
   if (!query) return unavailable("adressevaelger", "not_found", "Provide addressId, query or bfe");
@@ -295,5 +338,5 @@ export async function resolveProperty(input: {
   const resolved = await resolveHit(best, query);
   if (resolved.status !== "ok") return resolved;
   const warning = matchWarning(query, resolved.data.designation ?? best.designation, hits);
-  return warning ? { ...resolved, data: { ...resolved.data, matchWarning: warning } } : resolved;
+  return withoutBfe(warning ? { ...resolved, data: { ...resolved.data, matchWarning: warning } } : resolved);
 }

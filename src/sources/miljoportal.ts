@@ -50,9 +50,17 @@ function pick(props: Record<string, unknown> | undefined, ...keys: string[]): st
   if (!props) return undefined;
   for (const key of keys) {
     const match = Object.entries(props).find(([k]) => k.toLowerCase() === key.toLowerCase());
-    if (match && match[1] !== undefined && match[1] !== null) return String(match[1]);
+    if (match && match[1] !== undefined && match[1] !== null) return String(match[1]).trim() || undefined;
   }
   return undefined;
+}
+
+/** A locality spanning many parcels lists a soil certificate link per parcel (21 at Nordhavn); keep a few. */
+function certificateLinks(text: string | undefined, max = 3): string | undefined {
+  const links = text?.split(";").map((link) => link.trim()).filter(Boolean);
+  if (!links?.length) return undefined;
+  const more = links.length - max;
+  return `${links.slice(0, max).join(";")}${more > 0 ? ` (+${more} flere matrikler)` : ""}`;
 }
 
 function mapFeature(
@@ -66,7 +74,7 @@ function mapFeature(
     name: pick(p, "Lokalitetsnavn", "navn", "lokalitetsnavn", "plannavn"),
     status: pick(p, "Lokalitetetsforureningsstatus", "status", "kortlaegningsstatus"),
     localityNumber: pick(p, "Lokalitetsnr", "lokalitetsnr", "Id"),
-    details: pick(p, "Jordforureningsattester", "beskrivelse"),
+    details: certificateLinks(pick(p, "Jordforureningsattester", "beskrivelse")),
     address: pick(p, "Lokalitetetsadresse", "Lokalitetsadresse"),
     cadastralDistrictCode: pick(p, "Lokalitetsejerlavkode"),
     cadastralNumbers: matrikler
@@ -102,9 +110,11 @@ async function queryLayer(
 ): Promise<EnvironmentItem[]> {
   const key = `${layer.typeName}:${x.toFixed(0)}:${y.toFixed(0)}`;
   const [inside, around] = await Promise.all([
+    // Not swallowed: without the point test a locality under the property would read as "nearby"; the layer is
+    // reported in failedLayers instead.
     cached(`miljo:pt:${key}`, ttlFor("miljoportal"), () =>
       fetchJson<GeoJson>(`${layer.endpoint}?${params(layer, { cql: `INTERSECTS(${layer.geometryField},POINT(${x} ${y}))` })}`),
-    ).catch(() => ({ features: [] }) as GeoJson),
+    ),
     cached(`miljo:${key}`, ttlFor("miljoportal"), () =>
       fetchJson<GeoJson>(`${layer.endpoint}?${params(layer, { bbox: bboxAround(x, y, NEARBY_RADIUS_M) })}`),
     ),
@@ -139,7 +149,25 @@ export async function getEnvironmentAt(
   try {
     const groups = await Promise.allSettled(LAYERS.map((layer) => queryLayer(layer, x, y, parcels)));
     const items = groups.flatMap((group) => (group.status === "fulfilled" ? group.value : []));
-    return ok("miljoportal", { items });
+    const failedLayers = LAYERS.filter((_, index) => groups[index]?.status === "rejected").map((layer) => layer.typeName);
+    if (failedLayers.length === LAYERS.length) {
+      return unavailable("miljoportal", "upstream_error", "No Miljøportal layer answered");
+    }
+    const notes: string[] = [];
+    // Without the parcels (no Datafordeleren key) a locality on the property can look like a neighbour's:
+    // Levantkaj 4's own V1/V2 locality is found only through its parcel list.
+    if (!parcels.length) {
+      notes.push(
+        "Ejendommens matrikler er ukendte, så onProperty bygger kun på opslagspunktet; en lokalitet i nærheden kan ligge på ejendommen.",
+      );
+    }
+    if (failedLayers.length) notes.push(`Lag uden svar: ${failedLayers.join(", ")}.`);
+    return ok("miljoportal", {
+      items,
+      ...(failedLayers.length ? { failedLayers } : {}),
+      parcelsChecked: parcels.length > 0,
+      ...(notes.length ? { note: notes.join(" ") } : {}),
+    });
   } catch (error) {
     return unavailable(
       "miljoportal",

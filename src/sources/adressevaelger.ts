@@ -260,8 +260,16 @@ function hitsFrom(response: SearchResponse): SearchHit[] {
   return response.fund ?? response.resultater ?? response.adresser ?? response.husnumre ?? [];
 }
 
-/** The search API rejects very long text; no Danish address comes close to this. */
-const MAX_QUERY_LENGTH = 200;
+/** The search API rejects text over 73 characters (HTTP 400); no Danish address comes close to this. */
+const MAX_QUERY_LENGTH = 73;
+
+/** Cuts at the last whole word within the limit, so a long query still searches for its start. */
+function truncate(text: string): string {
+  if (text.length <= MAX_QUERY_LENGTH) return text;
+  const cut = text.slice(0, MAX_QUERY_LENGTH + 1);
+  const space = cut.search(/[\s,][^\s,]*$/);
+  return (space > 0 ? cut.slice(0, space) : cut.slice(0, MAX_QUERY_LENGTH)).replace(/[\s,]+$/, "");
+}
 /** Hits fetched before re-ranking, so a town named without its postcode can still win. */
 const CANDIDATES = 20;
 
@@ -295,7 +303,7 @@ export function spellingVariants(query: string): string[] {
 
 /** Keeps letters, digits and the separators the search understands. Emoji and symbols only make it miss. */
 export function cleanQuery(query: string): string {
-  return (
+  return truncate(
     query
       .normalize("NFC")
       // "c/o Hansen, Egeskovvej 41": the recipient is not part of the address.
@@ -310,7 +318,10 @@ export function cleanQuery(query: string): string {
       .replace(/(\d)\.(?=\p{L})/gu, "$1. ")
       .replace(/\s+/g, " ")
       .replace(/^[\s,]+|[\s,]+$/g, "")
-      .slice(0, MAX_QUERY_LENGTH)
+      // "Egeskovvej 41 A, 8800 Viborg" -> "41A": a lone letter after the number is part of it, not a town.
+      .replace(/(\p{L}\s\d{1,4})\s([A-Za-zÆØÅæøå])(?=,|$|\s\d)/gu, "$1$2")
+      // "41 Egeskovvej, 8800 Viborg" (number first, as in English) -> "Egeskovvej 41, 8800 Viborg".
+      .replace(/^(\d{1,3}[A-Za-zÆØÅæøå]?)\s+(\p{L}[\p{L}.' -]*?)(?=\s*(,|$))/u, "$2 $1")
   );
 }
 

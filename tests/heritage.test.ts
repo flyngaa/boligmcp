@@ -62,3 +62,15 @@ describe("cadastral and SAVE flags", () => {
     });
   });
 });
+
+describe("BBR listing codes", () => {
+  it("flags listings and registered declarations as high, medieval parts and preservation value as medium", () => {
+    const flag = (code: string) =>
+      buildFlags({ buildings: [{ buildingId: "b", usage: "Hus", listingCode: code, listing: `kode ${code}` }] }).map((item) => `${item.id}:${item.severity}`);
+    for (const code of ["1", "2", "3", "4", "6", "7"]) expect(flag(code)).toContain("listed_building:high");
+    for (const code of ["5", "8", "9"]) {
+      expect(flag(code)).toContain("worth_preserving:medium");
+      expect(flag(code)).not.toContain("listed_building:high");
+    }
+  });
+});

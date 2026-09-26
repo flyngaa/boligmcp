@@ -7,7 +7,7 @@ import { parseOutlines, ringArea } from "../src/sources/datafordeler/geodanmark.
 import { summarizeNearby } from "../src/sources/datafordeler/nearby.js";
 import { jsonStatCell, marketCategoryFor } from "../src/sources/dst.js";
 import * as report from "../src/tools/property-report.js";
-import { checkWatchlist, diffSnapshots, listWatchlist, unwatchProperty, watchProperty, type WatchSnapshot } from "../src/tools/watch.js";
+import { checkWatchlist, diffSnapshots, listWatchlist, mergeSnapshots, unwatchProperty, watchProperty, type WatchSnapshot } from "../src/tools/watch.js";
 
 afterEach(() => {
   delete process.env.BOLIGMCP_WATCHLIST_FILE;
@@ -86,6 +86,19 @@ describe("watchlist", () => {
     tenure: "Benyttet af ejeren",
     flags: ["medium: Gasopvarmning"],
   };
+
+  it("never reads a source that failed as a removal, and keeps the old values for it", () => {
+    // Plandata and BBR timed out during the check: their parts came back empty.
+    const failed: WatchSnapshot = { ...base, plans: [], buildings: [], flags: [], dwellingArea: null, unknown: ["plans", "buildings", "flags"] };
+    expect(diffSnapshots(base, failed)).toEqual([]);
+    const merged = mergeSnapshots(base, failed);
+    expect(merged).toMatchObject({ plans: base.plans, buildings: base.buildings, flags: base.flags, dwellingArea: 144 });
+    expect(merged.unknown).toBeUndefined();
+    // A real change in a part that answered is still reported.
+    expect(diffSnapshots(base, { ...failed, valuation: { ...base.valuation!, year: 2022, propertyValue: 2_419_000 } })).toEqual([
+      expect.stringMatching(/Ny offentlig vurdering 2022/),
+    ]);
+  });
 
   it("describes changes in plain Danish and nothing when nothing changed", () => {
     expect(diffSnapshots(base, { ...base, takenAt: "later" })).toEqual([]);

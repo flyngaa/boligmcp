@@ -104,10 +104,13 @@ type BbrResult = SourceResult<{ buildings: Building[]; units: Unit[]; ground?: G
  * Plans and overlays are looked up at the main building's BBR coordinate, which lies inside the plot.
  * The address point sits by the road and can fall outside the parcel polygon.
  */
+/** Where a map lookup was made: the main building, the address point, or the centroid of the property's land. */
+export type LookupPointKind = "building" | "address" | "parcel";
+
 export function lookupPointFor(
   ids: PropertyIds | undefined,
   buildings: BbrResult | undefined,
-): { x: number; y: number; kind: "building" | "address" } | undefined {
+): { x: number; y: number; kind: LookupPointKind } | undefined {
   if (buildings?.status === "ok") {
     const main =
       buildings.data.buildings.find((b) => !isOutbuilding(b.usageCode) && b.coordinate) ??
@@ -115,7 +118,9 @@ export function lookupPointFor(
     if (main?.coordinate) return { ...main.coordinate.epsg25832, kind: "building" };
   }
   const coord = ids?.coordinate?.epsg25832;
-  return coord ? { ...coord, kind: "address" } : undefined;
+  if (!coord) return undefined;
+  // A property without a street address is placed at the centroid of its land.
+  return { ...coord, kind: ids?.addressId || ids?.houseNumberId ? "address" : "parcel" };
 }
 
 /** Positions of the property's buildings, for lookups that must cover a whole estate. */
@@ -195,7 +200,7 @@ export async function collectPropertyData(
     ids?.bfe ? getValuation(ids.bfe) : Promise.resolve(undefined),
     ids?.bfe && !skip.trades ? getTrades(ids.bfe) : Promise.resolve(undefined),
     addressCoord ? getAdminAreasAt(addressCoord.x, addressCoord.y) : Promise.resolve(undefined),
-    skip.energy ? Promise.resolve(undefined) : getEnergyLabel({ bfe: ids?.bfe }),
+    skip.energy || !ids ? Promise.resolve(undefined) : getEnergyLabel({ bfe: ids.bfe }),
     ids?.bfe ? getPropertyLocation(ids.bfe) : Promise.resolve(undefined),
   ]);
   const buildings = unwrap(first[0]) as BbrResult | undefined;
@@ -268,6 +273,13 @@ export function summarize(data: PropertyData) {
   // One unit describes the address; several belong to a whole building, where the building's totals apply.
   const unit = buildingData?.units.length === 1 ? buildingData.units[0] : undefined;
   const val = valuation?.status === "ok" ? valuation.data : undefined;
+  // Without a unit of its own the address stands for the whole property: all its main buildings, not the first
+  // (Gudrunsvej 8 has 13 blocks; the first alone is 10,850 m²).
+  const propertyDwellingArea =
+    buildingData?.buildings
+      .filter((b) => !isOutbuilding(b.usageCode))
+      .reduce<number | undefined>((sum, b) => (b.dwellingArea ? (sum ?? 0) + b.dwellingArea : sum), undefined) ??
+    main?.dwellingArea;
   const planItems: PlanItem[] = plans?.status === "ok" ? plans.data.items : [];
   const envItems = environment?.status === "ok" ? environment.data.items : [];
   const framework = planItems.find((item) => item.type === "municipal_framework");
@@ -283,7 +295,7 @@ export function summarize(data: PropertyData) {
     municipality: admin?.status === "ok" ? admin.data.municipalityName : undefined,
     constructionYear: main?.constructionYear,
     usage: main?.usage,
-    dwellingArea: unit?.dwellingArea ?? main?.dwellingArea,
+    dwellingArea: unit?.dwellingArea ?? propertyDwellingArea,
     rooms: unit?.rooms,
     plotArea,
     heating: main ? [main.heating, main.heatingFuel].filter(Boolean).join(" · ") || undefined : undefined,
@@ -322,7 +334,11 @@ export function missingSources(data: PropertyData): Array<{ source: string; reas
     seen.add(key);
     missing.push({ source: result.source, reason: result.reason, detail: result.detail });
   };
-  collect(data.idsResult);
+  // Nothing resolved: only why. Other sources were not asked, so their credential hints would mislead.
+  if (data.idsResult.status !== "ok") {
+    collect(data.idsResult);
+    return missing;
+  }
   for (const result of [
     data.buildings,
     data.parcel,
@@ -353,12 +369,20 @@ export function missingSources(data: PropertyData): Array<{ source: string; reas
     });
   }
   // Without a Datafordeleren key the address still resolves, but no BFE and nothing keyed on it.
+  // Parcels, valuation and sales are keyed on it, so each is named: a missing valuation must not read as "none".
   if (data.ids && !data.ids.bfe && !getConfig().datafordelerApiKey && !seen.has("dar:missing_credentials")) {
-    missing.push({
-      source: "matrikel",
-      reason: "missing_credentials",
-      detail: "BFE is unavailable until DATAFORDELER_API_KEY is set.",
-    });
+    for (const [source, what] of [
+      ["matrikel", "Parcels"],
+      ["vur", "Valuation"],
+      ["ejf", "Sales"],
+    ] as const) {
+      if (seen.has(`${source}:missing_credentials`)) continue;
+      missing.push({
+        source,
+        reason: "missing_credentials",
+        detail: `${what} not looked up: the BFE is unavailable until DATAFORDELER_API_KEY is set.`,
+      });
+    }
   }
   return missing;
 }

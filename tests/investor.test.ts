@@ -132,6 +132,29 @@ describe("VUR history", () => {
     expect(valuation.latest?.year).toBe(2019);
     expect(valuation.history).toHaveLength(2);
   });
+
+  it("adds real parts but not a revision with a slightly changed area", () => {
+    // Egeskov Gade 18 (BFE 9519007), 2003 as VUR returned it on 26 September 2026: a small separate part, the January
+    // valuation and its October revision. The revision replaces the January row; it is not a third part.
+    const valuation = mapValuationRows("9519007", [
+      { id: 329032646671948, aar: 2003, ejendomvaerdiBeloeb: 0, grundvaerdiBeloeb: 89000, vurderetAreal: 33832, aendringDato: "2003-10-01" },
+      { id: 326183798101277, aar: 2003, ejendomvaerdiBeloeb: 40000000, grundvaerdiBeloeb: 12196900, vurderetAreal: 4673916, aendringDato: "2003-01-01" },
+      { id: 279005700002154, aar: 2003, ejendomvaerdiBeloeb: 40500000, grundvaerdiBeloeb: 13849600, vurderetAreal: 4762821, aendringDato: "2003-10-01" },
+    ]);
+    expect(valuation.latest).toMatchObject({ propertyValue: 40500000, landValue: 13938600, valuedArea: 4796653, parts: 2 });
+  });
+
+  it("ignores a later row of zeros with no area next to a valuation", () => {
+    // Levantkaj 4 (BFE 100074116), 2015.
+    const valuation = mapValuationRows("100074116", [
+      { id: 655157228631201, aar: 2015, ejendomvaerdiBeloeb: 78188400, grundvaerdiBeloeb: 78188400, vurderetAreal: 10566, aendringDato: "2015-10-01" },
+      { id: 655168139540537, aar: 2015, ejendomvaerdiBeloeb: 78188400, grundvaerdiBeloeb: 78188400, vurderetAreal: 10566, aendringDato: "2015-10-02" },
+      { id: 655200426099009, aar: 2015, ejendomvaerdiBeloeb: 0, grundvaerdiBeloeb: 0, vurderetAreal: 0, aendringDato: "2020-09-14" },
+    ]);
+    expect(valuation.history).toHaveLength(1);
+    expect(valuation.latest).toMatchObject({ propertyValue: 78188400 });
+    expect(valuation.latest?.parts).toBeUndefined();
+  });
 });
 
 describe("VUR systems", () => {
@@ -209,6 +232,22 @@ describe("Miljøportal soil", () => {
     resetCacheForTests();
     const listed = await getEnvironmentAt(538435.91, 6259867.64, [{ cadastralDistrictCode: "771654", cadastralNumber: "7N" }]);
     expect(listed.status === "ok" && listed.data.items[0]?.onProperty).toBe(true);
+    expect(listed.status === "ok" && listed.data).toMatchObject({ parcelsChecked: true });
+    expect(listed.status === "ok" && listed.data.note).toBeUndefined();
+  });
+
+  it("says when parcels were unknown or a layer failed, instead of looking clean", async () => {
+    resetConfigForTests(memoryConfig);
+    vi.spyOn(http, "fetchJson").mockImplementation(async (url: string) => {
+      if (url.includes("View_V2Flader")) throw new http.HttpError("HTTP 503", 503);
+      return url.includes("View_V1Flader") && url.includes("bbox=") ? soilGeo : { features: [] };
+    });
+    const result = await getEnvironmentAt(538435.91, 6259867.64);
+    expect(result.status === "ok" && result.data).toMatchObject({
+      parcelsChecked: false,
+      failedLayers: [expect.stringMatching(/V2/)],
+      note: expect.stringMatching(/matrikler er ukendte.*Lag uden svar/),
+    });
   });
 });
 
@@ -308,6 +347,8 @@ describe("BBR fetch", () => {
         { id_lokalId: "b2", status: "6", grund: "g1", byg021BygningensAnvendelse: "920", byg026Opfoerelsesaar: 2005, byg032YdervaeggensMateriale: "5" },
         { id_lokalId: "b3", status: "10", grund: "g1", byg021BygningensAnvendelse: "930" },
         { id_lokalId: "b4", status: "9", grund: "g1", byg021BygningensAnvendelse: "140" },
+        // "Midlertidig afsluttet": an empty copy of the building (Istedgade 60 has two).
+        { id_lokalId: "b5", status: "12", grund: "g1", byg021BygningensAnvendelse: "120" },
       ],
       BBR_Etage: [{ eta006BygningensEtagebetegnelse: "01", eta021ArealAfUdnyttetDelAfTagetage: 59, eta025Etagetype: "1" }],
       BBR_Enhed: [
@@ -337,6 +378,29 @@ describe("BBR fetch", () => {
     expect(result.data.units[0]).toMatchObject({ dwellingArea: 144, tenure: "Benyttet af ejeren", toilet: true, kitchen: true });
     expect(result.data.ground).toMatchObject({ waterSupply: "Alment vandforsyningsanlæg", drainage: "Spildevandskloakeret: Spildevand" });
   });
+
+  it("gives a school or shop unit no dwelling area, only its total", async () => {
+    // Levantkaj 4, 2150 Nordhavn: a school unit with 25,443 m² of commercial area and no enh027.
+    resetConfigForTests(memoryConfig);
+    vi.spyOn(http, "fetchJson").mockImplementation(async (_url: string, options?: http.FetchJsonOptions) => {
+      const query = (options?.body as { query: string }).query;
+      const entity = query.match(/(DAR_Adresse|BBR_Bygning|BBR_Etage|BBR_Enhed|BBR_Grund)\(/)?.[1] ?? "";
+      const nodes: Record<string, Array<Record<string, unknown>>> = {
+        DAR_Adresse: [{ husnummer: "hn1" }],
+        BBR_Bygning: [{ id_lokalId: "b1", status: "6", byg021BygningensAnvendelse: "421" }],
+        BBR_Enhed: [
+          { id_lokalId: "u1", status: "6", enh020EnhedensAnvendelse: "421", enh026EnhedensSamledeAreal: 25443, enh028ArealTilErhverv: 25443 },
+          { id_lokalId: "u2", status: "6", enh020EnhedensAnvendelse: "510", enh026EnhedensSamledeAreal: 62 },
+        ],
+      };
+      return { data: { [entity]: { nodes: nodes[entity] ?? [] } } };
+    });
+    const result = await getBuildingsAndUnits({ bfe: "100074116", addressId: "a1" });
+    expect(result.status === "ok" && result.data.units).toMatchObject([
+      { dwellingArea: null, totalArea: 25443, commercialArea: 25443 },
+      { dwellingArea: 62, totalArea: 62 },
+    ]);
+  });
 });
 
 describe("report summary", () => {
@@ -352,6 +416,23 @@ describe("report summary", () => {
     });
     expect(report.summarize(plans("R24.B.4.16 - B4")).framework).toBe("R24.B.4.16 - B4");
     expect(report.summarize(plans("Vonsild Øst")).framework).toBe("R24.B.4.16 Vonsild Øst");
+  });
+
+  it("gives a whole property's dwelling area, not its first building's", () => {
+    // Gudrunsvej 8, 8220 Brabrand: the street address has no unit of its own and stands for 13 blocks.
+    const ok = <T,>(source: "dar" | "bbr", data: T) => ({ status: "ok" as const, source, fetchedAt: "", data });
+    const block = (id: string, dwellingArea: number | null, usageCode = "140"): Building => ({ buildingId: id, usageCode, dwellingArea });
+    const summary = report.summarize({
+      idsResult: ok("dar", {}),
+      buildings: ok("bbr", {
+        buildings: [block("a", 10850), block("b", 9553), block("c", null), block("d", 30, "910")],
+        units: [
+          { unitId: "u1", dwellingArea: 41 },
+          { unitId: "u2", dwellingArea: 41 },
+        ],
+      }),
+    });
+    expect(summary.dwellingArea).toBe(20403);
   });
 });
 

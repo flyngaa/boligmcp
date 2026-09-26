@@ -94,7 +94,9 @@ describe("dst", () => {
     const result = await getAreaStatsForMunicipality("101");
     expect(result.status).toBe("ok");
     if (result.status === "ok") {
-      expect(result.data.stats[0]?.value).toBe(661000);
+      // The latest period, and the same quarter five years before, from one response.
+      expect(result.data.stats[0]).toMatchObject({ key: "population", value: 661000, label: "Befolkning (2026K3)" });
+      expect(result.data.stats[1]).toMatchObject({ key: "population_change_5y", value: 3.3 });
       expect(result.data.municipalityName).toBe("Copenhagen");
     }
   });

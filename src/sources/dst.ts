@@ -1,6 +1,6 @@
 import { ttlFor } from "../catalog.js";
 import { cached, limiter } from "../lib/cache.js";
-import { fetchJson as rawFetchJson, type FetchJsonOptions } from "../lib/http.js";
+import { HttpError, fetchJson as rawFetchJson, type FetchJsonOptions } from "../lib/http.js";
 
 /** Statistikbanken slows down sharply under parallel load; a few requests at a time finish sooner. */
 const statbankSlot = limiter(4);
@@ -9,8 +9,10 @@ import { ok, unavailable, type AreaStat, type AreaStats, type SourceResult } fro
 
 const BASE = "https://api.statbank.dk/v1/data";
 
-// Statbank normally answers in well under a second; a slow reply means it is struggling, so give up early.
-const HTTP = { timeoutMs: 8_000, retries: 1 };
+// Statbank answers in ~200 ms when idle but throttles to about two requests a second under steady load (answers
+// then take 2–4 s), and now and then one request stalls for 10 s or more. 6 s lets a throttled answer arrive
+// instead of aborting and asking again; one retry recovers a stall, and both (~12.4 s) fit in property_report's 15 s.
+const HTTP = { timeoutMs: 6_000, retries: 1 };
 
 interface DstTableResponse {
   dataset?: {
@@ -71,6 +73,16 @@ function fiveYearsBefore(period: string): string | undefined {
   return `${Number(match[1]) - 5}${match[2] ?? ""}`;
 }
 
+/**
+ * Names of the tables whose request failed, once each. HTTP 400 is not a failure: Statistikbanken answers it for an
+ * area the table does not cover (no income or unemployment figures for Christiansø).
+ */
+function failedNames(results: PromiseSettledResult<unknown>[], names: string[]): string[] {
+  const failed = (result: PromiseSettledResult<unknown> | undefined) =>
+    result?.status === "rejected" && !(result.reason instanceof HttpError && result.reason.status === 400);
+  return [...new Set(names.filter((_, index) => failed(results[index])))];
+}
+
 export async function getAreaStatsForMunicipality(
   municipalityCode: string,
 ): Promise<SourceResult<AreaStats>> {
@@ -79,37 +91,31 @@ export async function getAreaStatsForMunicipality(
     const stats: AreaStat[] = [];
     let municipalityName: string | undefined;
 
-    const [folk, income, owners, renters, empty, unemployment, migration] = await Promise.allSettled([
-      table("FOLK1A", code),
+    // Statistikbanken slows to about two requests a second under steady load, so each table is asked once:
+    // every period of FOLK1A (latest and five years before), and all of BOL101's tenure counts together.
+    const [folk, income, housing, unemployment, migration] = await Promise.allSettled([
+      table("FOLK1A", code, { Tid: "*" }),
       table("INDKP101", code, { INDKOMSTTYPE: "100", KOEN: "MOK", ENHED: "116" }),
-      table("BOL101", code, { BEBO: "1000", UDLFORH: "EJ" }),
-      table("BOL101", code, { BEBO: "1000", UDLFORH: "LEJ" }),
-      table("BOL101", code, { BEBO: "2000" }),
+      table("BOL101", code, { BEBO: "1000,2000", UDLFORH: "*" }),
       table("AULP01", code),
       table("BEV107", code, { BEVÆGELSE: "B07", KØN: "M,K" }),
     ]);
 
     if (folk.status === "fulfilled") {
       municipalityName = kommuneLabel(folk.value, code);
-      const latest = firstValue(folk.value);
-      const period = periods(folk.value)[0];
+      const period = periods(folk.value).at(-1);
+      const latest = period ? jsonStatCell(folk.value as JsonStat, { Tid: period }) : null;
       stats.push({ key: "population", label: `Befolkning (${period ?? "seneste"})`, value: latest, table: "FOLK1A" });
       const earlier = period ? fiveYearsBefore(period) : undefined;
-      if (latest !== null && earlier) {
-        try {
-          const old = firstValue(await table("FOLK1A", code, { Tid: earlier }));
-          if (old) {
-            stats.push({
-              key: "population_change_5y",
-              label: `Befolkningsudvikling ${earlier}–${period}`,
-              value: Math.round(((latest - old) / old) * 1000) / 10,
-              unit: "%",
-              table: "FOLK1A",
-            });
-          }
-        } catch {
-          // The comparison is a bonus; the latest figure stands on its own.
-        }
+      const old = earlier ? jsonStatCell(folk.value as JsonStat, { Tid: earlier }) : null;
+      if (latest !== null && old) {
+        stats.push({
+          key: "population_change_5y",
+          label: `Befolkningsudvikling ${earlier}–${period}`,
+          value: Math.round(((latest - old) / old) * 1000) / 10,
+          unit: "%",
+          table: "FOLK1A",
+        });
       }
     }
     if (income.status === "fulfilled") {
@@ -122,20 +128,22 @@ export async function getAreaStatsForMunicipality(
         table: "INDKP101",
       });
     }
-    if (owners.status === "fulfilled" && renters.status === "fulfilled") {
-      const own = firstValue(owners.value) ?? 0;
-      const rent = firstValue(renters.value) ?? 0;
+    if (housing.status === "fulfilled") {
+      const cell = (bebo: string, tenure: string) => jsonStatCell(housing.value as JsonStat, { BEBO: bebo, UDLFORH: tenure }) ?? 0;
+      const own = cell("1000", "EJ");
+      const rent = cell("1000", "LEJ");
       if (own + rent > 0) {
         stats.push({
           key: "rented_share",
-          label: `Andel beboede boliger beboet af lejer (${periods(owners.value)[0] ?? "seneste"})`,
+          label: `Andel beboede boliger beboet af lejer (${periods(housing.value)[0] ?? "seneste"})`,
           value: Math.round((rent / (own + rent)) * 1000) / 10,
           unit: "%",
           table: "BOL101",
         });
       }
-      if (empty.status === "fulfilled") {
-        const vacant = firstValue(empty.value) ?? 0;
+      {
+        // Dwellings with nobody registered, whatever their tenure.
+        const vacant = categoryKeys(housing.value as JsonStat, "UDLFORH").reduce((sum, tenure) => sum + cell("2000", tenure), 0);
         stats.push({
           key: "vacant_share",
           label: "Andel boliger uden CPR-tilmeldte (ubeboede)",
@@ -165,12 +173,23 @@ export async function getAreaStatsForMunicipality(
     }
 
     if (stats.length === 0) {
-      const reasons = [folk, income, owners, unemployment]
+      const reasons = [folk, income, housing, unemployment]
         .filter((item): item is PromiseRejectedResult => item.status === "rejected")
         .map((item) => String(item.reason).slice(0, 160));
       return unavailable("dst", "upstream_error", `No Statbank tables returned data. ${reasons.join(" | ")}`);
     }
-    return ok("dst", { level: "municipality", areaCode: code, areaName: municipalityName, municipalityCode: code, municipalityName, stats });
+    // areaCode is Statistikbanken's ("791"); municipalityCode is DAGI's ("0791"), as in get_admin_areas.
+    const dagiCode = code.padStart(4, "0");
+    const failedTables = failedNames([folk, income, housing, unemployment, migration], ["FOLK1A", "INDKP101", "BOL101", "AULP01", "BEV107"]);
+    return ok("dst", {
+      level: "municipality",
+      areaCode: code,
+      areaName: municipalityName,
+      municipalityCode: dagiCode,
+      municipalityName,
+      stats,
+      ...(failedTables.length ? { failedTables } : {}),
+    });
   } catch (error) {
     return unavailable("dst", "upstream_error", error instanceof Error ? error.message : String(error));
   }
@@ -229,7 +248,7 @@ export async function getParishStats(parishCode: string, parishName?: string): P
   try {
     const stats: AreaStat[] = [];
     const [population, age, migration, socio, education] = await Promise.allSettled([
-      statbank("SOGN1", { SOGN: code }),
+      statbank("SOGN1", { SOGN: code, Tid: "*" }),
       statbank("KMGALDER", { SOGN: code, KØN: "TOT" }),
       statbank("KMSTA003", { SOGN: code, KIRKEBEV: "B05,B06,B07" }),
       statbank("KMSTA005", { SOGN: code, SOCIO: "*" }),
@@ -237,17 +256,13 @@ export async function getParishStats(parishCode: string, parishName?: string): P
     ]);
 
     if (population.status === "fulfilled") {
-      const latest = categoryKeys(population.value, "Tid")[0];
-      const value = jsonStatCell(population.value, {});
+      const latest = categoryKeys(population.value, "Tid").at(-1);
+      const value = latest ? jsonStatCell(population.value, { Tid: latest }) : null;
       stats.push({ key: "parish_population", label: `Indbyggere i sognet (${latest})`, value, table: "SOGN1" });
-      if (latest && value !== null) {
-        try {
-          const earlier = String(Number(latest) - 5);
-          const old = jsonStatCell(await statbank("SOGN1", { SOGN: code, Tid: earlier }), {});
-          stats.push({ key: "parish_population_change_5y", label: `Befolkningsudvikling ${earlier}–${latest}`, value: pct(value, old), unit: "%", table: "SOGN1" });
-        } catch {
-          // The latest figure stands on its own.
-        }
+      const earlier = latest ? String(Number(latest) - 5) : undefined;
+      const old = earlier ? jsonStatCell(population.value, { Tid: earlier }) : null;
+      if (value !== null && old !== null) {
+        stats.push({ key: "parish_population_change_5y", label: `Befolkningsudvikling ${earlier}–${latest}`, value: pct(value, old), unit: "%", table: "SOGN1" });
       }
     }
     if (age.status === "fulfilled") {
@@ -283,7 +298,11 @@ export async function getParishStats(parishCode: string, parishName?: string): P
       });
     }
     if (stats.length === 0) return unavailable("dst", "upstream_error", `No parish statistics for sogn ${code}`);
-    return ok("dst", { level: "parish", areaCode: code, areaName: parishName, stats });
+    const failedTables = failedNames(
+      [population, age, migration, socio, education],
+      ["SOGN1", "KMGALDER", "KMSTA003", "KMSTA005", "KMST007A"],
+    );
+    return ok("dst", { level: "parish", areaCode: code, areaName: parishName, stats, ...(failedTables.length ? { failedTables } : {}) });
   } catch (error) {
     return unavailable("dst", "upstream_error", error instanceof Error ? error.message : String(error));
   }
@@ -327,12 +346,14 @@ export async function getRegionalMarket(landsdelName: string, category: MarketCa
     if (!area) return unavailable("dst", "not_found", `No landsdel called ${landsdelName} in Statistikbanken`);
     const kind = MARKET_CATEGORY[category];
 
-    const latestIndex = await statbank("EJ56", { OMRÅDE: area.id, EJENDOMSKATE: kind.index, TAL: "100,310" });
-    const latest = categoryKeys(latestIndex, "Tid")[0];
+    const [both, sales] = await Promise.all([
+      statbank("EJ56", { OMRÅDE: area.id, EJENDOMSKATE: kind.index, TAL: "100,310", Tid: "*" }),
+      statbank("EJEN77", { OMRÅDE: area.id, EJENDOMSKATE: kind.sales, BNØGLE: "3,1", OVERDRAG: "1" }),
+    ]);
+    const latest = categoryKeys(both, "Tid").at(-1);
     const stats: AreaStat[] = [];
     if (latest) {
       const earlier = `${Number(latest.slice(0, 4)) - 5}${latest.slice(4)}`;
-      const both = await statbank("EJ56", { OMRÅDE: area.id, EJENDOMSKATE: kind.index, TAL: "100,310", Tid: `${earlier},${latest}` });
       stats.push({
         key: "price_index_change_1y",
         label: `Prisudvikling ${kind.label}, ${area.text.replace(/^Landsdel /, "")}, seneste år (${latest})`,
@@ -348,7 +369,6 @@ export async function getRegionalMarket(landsdelName: string, category: MarketCa
         table: "EJ56",
       });
     }
-    const sales = await statbank("EJEN77", { OMRÅDE: area.id, EJENDOMSKATE: kind.sales, BNØGLE: "3,1", OVERDRAG: "1" });
     const salesPeriod = categoryKeys(sales, "Tid")[0];
     const avg = jsonStatCell(sales, { BNØGLE: "3" });
     stats.push({

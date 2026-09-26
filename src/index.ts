@@ -1,8 +1,8 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer, type ToolCallback } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { listSourceStatus, SETUP_COMMAND } from "./catalog.js";
-import { resolveProperty, suggestionsFor } from "./resolve.js";
+import { looksForeign, resolveProperty, suggestionsFor } from "./resolve.js";
 import { lookupAddress, searchAddresses } from "./sources/adressevaelger.js";
 import {
   getAreaStatsForMunicipality,
@@ -32,15 +32,6 @@ import { getNearbyServices } from "./sources/datafordeler/nearby.js";
 import { unavailable, type PropertyIds, type SourceId, type SourceResult } from "./types.js";
 import { VERSION } from "./version.js";
 
-/** Every address tool takes the same input: free text, or an id from search_address. */
-const addressInput = {
-  query: z.string().optional().describe("Free-text Danish address, e.g. \"Egeskovvej 41, 8800 Viborg\""),
-  addressId: z
-    .string()
-    .optional()
-    .describe("DAR address id or house-number id (houseNumberId) from search_address or resolve_property"),
-};
-
 /** Models often send the BFE as a number; both are accepted. */
 const bfeInput = z
   .preprocess(
@@ -49,9 +40,22 @@ const bfeInput = z
   )
   .describe("BFE number (bestemt fast ejendom), e.g. 3451459");
 
+/**
+ * Every address tool takes the same input: free text, an id from search_address, or a BFE for a property
+ * without a street address (a field or forest is then looked up at its parcel).
+ */
+const addressInput = {
+  query: z.string().optional().describe("Free-text Danish address, e.g. \"Egeskovvej 41, 8800 Viborg\""),
+  addressId: z
+    .string()
+    .optional()
+    .describe("DAR address id or house-number id (houseNumberId) from search_address or resolve_property"),
+  bfe: bfeInput.optional().describe("BFE number, e.g. 3451459; use it for a property without a street address"),
+};
+
 async function resolveTarget(input: { query?: string; addressId?: string; bfe?: string }): Promise<SourceResult<PropertyIds>> {
   if (!input.query?.trim() && !input.addressId?.trim() && !input.bfe) {
-    return unavailable("adressevaelger", "not_found", "Provide query or addressId");
+    return unavailable("adressevaelger", "not_found", "Provide query, addressId or bfe");
   }
   return resolveProperty(input);
 }
@@ -66,7 +70,7 @@ function buildingsFor(ids: PropertyIds) {
 }
 
 /** Resolves the address and finds the main building's coordinate when BBR has one, else the address point. */
-async function locate(input: { query?: string; addressId?: string }) {
+async function locate(input: { query?: string; addressId?: string; bfe?: string }) {
   const resolved = await resolveTarget(input);
   if (resolved.status !== "ok") return { resolved };
   const buildings = await buildingsFor(resolved.data);
@@ -88,14 +92,25 @@ export function createServer(): McpServer {
     { instructions: INSTRUCTIONS },
   );
 
-  server.tool(
+  /**
+   * Registers a tool whose arguments are checked strictly: a misspelt or unknown argument ("adress", "maxResults")
+   * is an error naming it, not silently dropped so the call looks like one without input.
+   */
+  const tool = <Shape extends z.ZodRawShape>(
+    name: string,
+    description: string,
+    shape: Shape,
+    callback: ToolCallback<z.ZodObject<Shape, "strict">>,
+  ) => server.registerTool(name, { description, inputSchema: z.object(shape).strict() }, callback);
+
+  tool(
     "list_sources",
     "List data sources, their access tier, whether the user's own credentials are configured (and from where: env or credentials file), and how to set up the missing ones. Never returns credential values.",
     {},
     async () => asText({ sources: listSourceStatus() }),
   );
 
-  server.tool(
+  tool(
     "search_address",
     "Search Danish addresses by free text using Adressevælgeren (DAWA replacement). Use before any property lookup.",
     {
@@ -105,22 +120,25 @@ export function createServer(): McpServer {
     async ({ query, limit }) => {
       const result = await searchAddresses(query, limit ?? 10);
       if (result.status !== "unavailable" || result.reason !== "not_found") return asText(result);
+      if (looksForeign(query)) {
+        return asText({ ...result, detail: `${result.detail}. Only addresses in Denmark are covered, not Greenland, the Faroe Islands or other countries.` });
+      }
       const suggestions = await suggestionsFor(query).catch(() => []);
       return asText(suggestions.length ? { ...result, suggestions } : result);
     },
   );
 
-  server.tool(
+  tool(
     "resolve_property",
     "Resolve a Danish address (or a BFE) to DAR IDs, coordinates, cadastral IDs and BFE. For a flat that is a condominium, bfe is the flat's own and mainBfe the property holding the land. matchWarning says when the address found is not exactly the one asked for. Requires Datafordeleren for BFE.",
-    { ...addressInput, bfe: bfeInput.optional() },
+    addressInput,
     async (input) => asText(await resolveTarget(input)),
   );
 
-  server.tool(
+  tool(
     "get_buildings",
     "Get BBR buildings (incl. outbuildings on the same ground), floors with attic/basement areas, units with tenure and facilities, and water/drainage. Give an address for its own unit, or a BFE for the whole property. Labels use the official Danish BBR code lists.",
-    { ...addressInput, bfe: bfeInput.optional() },
+    addressInput,
     async ({ bfe, ...input }) => {
       if (!input.query?.trim() && !input.addressId?.trim()) {
         if (!bfe) return asText(unavailable("bbr", "not_found", "Provide bfe, query or addressId"));
@@ -132,28 +150,28 @@ export function createServer(): McpServer {
     },
   );
 
-  server.tool(
+  tool(
     "get_parcel",
     "Get cadastral parcels (matrikel) for a BFE number, including theme notes such as fredskov, strandbeskyttelse and klitfredning. A condominium's BFE gives the parcels of the property it is part of.",
     { bfe: bfeInput },
     async ({ bfe }) => asText(await getParcels(bfe)),
   );
 
-  server.tool(
+  tool(
     "get_valuation",
     "Get official property and land valuation (VUR) for a BFE: full history, with the latest valuation from the new system (2020+) and the old system kept apart. Valuations of one property in several parts in the same year are added together (parts).",
     { bfe: bfeInput },
     async ({ bfe }) => asText(await getValuation(bfe)),
   );
 
-  server.tool(
+  tool(
     "get_trades",
-    "Get recorded ownership changes for a BFE from EJF, newest first: takeover and agreement dates, total and cash price, movables and transfer type. Entries without a price are transfers such as inheritance, not sales. Needs the user's own approved EJF OAuth access. Never returns buyers, sellers or owner names.",
+    "Get recorded ownership changes for a BFE from EJF, newest first: takeover and agreement dates, total and cash price, movables and transfer type. Entries without a price have no recorded price: usually transfers such as inheritance, sometimes a second record of a sale on the same date; transferType tells them apart. Needs the user's own approved EJF OAuth access. Never returns buyers, sellers or owner names.",
     { bfe: bfeInput },
     async ({ bfe }) => asText(await getTrades(bfe)),
   );
 
-  server.tool(
+  tool(
     "get_admin_areas",
     "Get municipality, region, parish, court and police districts for an address.",
     addressInput,
@@ -166,7 +184,7 @@ export function createServer(): McpServer {
     },
   );
 
-  server.tool(
+  tool(
     "get_plans",
     "Get local plans, local plan subareas, municipal plan frameworks (with max plot ratio, floors and height), zone status and plan proposals covering the property. Nearby local plans that do not cover it are listed separately.",
     addressInput,
@@ -178,7 +196,7 @@ export function createServer(): McpServer {
     },
   );
 
-  server.tool(
+  tool(
     "get_site_conditions",
     "Get site conditions from municipal plans at the property: heat supply and heat plan areas, sewer catchment, flood/erosion risk, near-surface groundwater, low-lying land, noise, large livestock farm areas, planned roads and technical facilities nearby, and cultural heritage designations.",
     addressInput,
@@ -190,7 +208,7 @@ export function createServer(): McpServer {
     },
   );
 
-  server.tool(
+  tool(
     "get_terrain",
     "Get terrain height (m DVR90, about mean sea level) at the property from Danmarks Højdemodel, the highest surface nearby (roof/trees) and how the plot lies relative to the terrain within 250 m.",
     addressInput,
@@ -202,7 +220,7 @@ export function createServer(): McpServer {
     },
   );
 
-  server.tool(
+  tool(
     "get_aerial_photo",
     "Get a GeoDanmark spring orthophoto (straight down) and a cropped skråfoto facade of the property. Needs the user's own Dataforsyningen token. The token is never included in an image URL.",
     addressInput,
@@ -235,7 +253,7 @@ export function createServer(): McpServer {
     },
   );
 
-  server.tool(
+  tool(
     "get_environment",
     "Get mapped soil contamination (V1/V2) and the coastal proximity zone at the property. Each locality says whether it is on the property (point inside or parcel listed) or only nearby (~80 m).",
     addressInput,
@@ -249,7 +267,7 @@ export function createServer(): McpServer {
     },
   );
 
-  server.tool(
+  tool(
     "get_heritage",
     "Get SAVE preservation value (1–9, 1 is highest) and listed status from Slots- og Kulturstyrelsen (FBB) for buildings at the property. atProperty is false for neighbouring buildings the ~50 m lookup also found.",
     addressInput,
@@ -262,17 +280,17 @@ export function createServer(): McpServer {
     },
   );
 
-  server.tool(
+  tool(
     "get_property_location",
     "Get the property's location from EBR: the street address linked to the BFE, or the text designation used when the property has no street address. Same Datafordeleren API key as BBR. No owner names.",
     { bfe: bfeInput },
     async ({ bfe }) => asText(await getPropertyLocation(bfe)),
   );
 
-  server.tool(
+  tool(
     "get_energy_label",
     "Get the official energy label (energimærke) for an address or BFE from Energistyrelsen's EMOData service. Needs the user's own EMOData agreement. Also included in property_report.",
-    { ...addressInput, bfe: bfeInput.optional() },
+    addressInput,
     async ({ bfe, ...input }) => {
       if (bfe && !input.query?.trim() && !input.addressId?.trim()) return asText(await getEnergyLabel({ bfe }));
       const resolved = await resolveTarget(input);
@@ -281,7 +299,7 @@ export function createServer(): McpServer {
     },
   );
 
-  server.tool(
+  tool(
     "get_area_stats",
     "Get municipality statistics from Danmarks Statistik: population and 5-year change, disposable income, share of rented and vacant dwellings, unemployment and net migration.",
     addressInput,
@@ -311,10 +329,10 @@ export function createServer(): McpServer {
     },
   );
 
-  server.tool(
+  tool(
     "property_report",
     "Build a combined report for a Danish address or BFE with investor flags (asbestos, fossil heating, area composition, building rights headroom, plan proposals, flood/noise/groundwater, tenancy, drainage). Marks missing sources. summary.matchWarning says when the address found is not exactly the one asked for. Use bfe for a property without a street address.",
-    { ...addressInput, bfe: bfeInput.optional() },
+    addressInput,
     async (input) => {
       if (!input.query?.trim() && !input.addressId?.trim() && !input.bfe) {
         return asText({ error: "Provide query, addressId or bfe" });
@@ -323,7 +341,7 @@ export function createServer(): McpServer {
     },
   );
 
-  server.tool(
+  tool(
     "get_nearby_services",
     "Get straight-line distance to the nearest primary school, daycare, shop, doctor/health centre and sports hall from BBR, and how many lie within 1 km.",
     addressInput,
@@ -335,7 +353,7 @@ export function createServer(): McpServer {
     },
   );
 
-  server.tool(
+  tool(
     "get_local_statistics",
     "Get parish (sogn) statistics — population and 5-year change, average age, net migration, employment and education — plus the regional price index and average sale price for the property type (landsdel level, Statistikbanken). Each block says its level and area.",
     addressInput,
@@ -353,11 +371,14 @@ export function createServer(): McpServer {
         admin.data.parishCode ? getParishStats(admin.data.parishCode, admin.data.parishName) : Promise.resolve(undefined),
         admin.data.landsdelName && category ? getRegionalMarket(admin.data.landsdelName, category) : Promise.resolve(undefined),
       ]);
-      return asText(forAddress({ parish, market }, resolved.data));
+      const noMarket = !category
+        ? { reason: "Ingen prisstatistik for ejendomstypen; Danmarks Statistik dækker enfamiliehuse, ejerlejligheder og sommerhuse." }
+        : undefined;
+      return asText(forAddress({ parish, market: market ?? noMarket }, resolved.data));
     },
   );
 
-  server.tool(
+  tool(
     "watch_property",
     "Add a Danish address to the user's watchlist and save a snapshot (valuation, plans and proposals, BBR buildings, last sale, flags). Later, check_watchlist reports what changed. Watching a property again keeps its baseline.",
     {
@@ -371,14 +392,14 @@ export function createServer(): McpServer {
     async ({ query, note, allowMismatch }) => asText(await watchProperty(query, note, { allowMismatch })),
   );
 
-  server.tool(
+  tool(
     "check_watchlist",
     "Re-check every watched property and report changes since the last check: new valuation, new sale, plans or proposals covering it, BBR building changes and new or resolved flags.",
     { update: z.boolean().optional().describe("Save the new state as the baseline (default true)") },
     async ({ update }) => asText(await checkWatchlist({ update })),
   );
 
-  server.tool(
+  tool(
     "list_watchlist",
     "List the properties on the user's watchlist and when each was last checked.",
     {},
@@ -388,14 +409,14 @@ export function createServer(): McpServer {
     },
   );
 
-  server.tool(
+  tool(
     "unwatch_property",
     "Remove a property from the watchlist by its id from list_watchlist (BFE or address id) or the address text used when adding it.",
     { id: z.string().min(1).describe("The entry's id from list_watchlist (BFE or address id), or the address text used when adding it") },
     async ({ id }) => asText(unwatchProperty(id)),
   );
 
-  server.tool(
+  tool(
     "screen_properties",
     `Screen up to ${SCREEN_MAX_ADDRESSES} Danish addresses at once and return one comparable row per address: size, plot, heating, zone, new public valuation, valuation per m², building rights headroom and high/medium flags.`,
     {

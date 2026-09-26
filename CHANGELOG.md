@@ -3,11 +3,37 @@
 ## Unreleased
 
 ### New
+- Live regression suite: `pnpm live` runs the cases in `tests/live/cases/` through the real server against the live registers, also as built (`--dist`); `pnpm live:sample` checks reports for random addresses (see docs/test-plan.md).
 - `get_property_location`: EBR beliggenhed for a BFE. A street address when one exists, otherwise the text designation used for a property with no address. Same Datafordeleren API key as BBR.
 - `get_aerial_photo`: GeoDanmark spring orthophoto plus a cropped skråfoto facade. The crop uses Klimadatastyrelsen's published camera formula and the public COG. The token is sent as a header and never put in an image URL.
 - `get_energy_label` calls Energistyrelsen's `SearchEnergyLabelBFE` endpoint. It still needs the user's own EMOData agreement.
 
 ### Fixes
+- Statistics hold up when several reports run: 12 Statistikbanken requests per report instead of 17, and throttled answers are waited for rather than aborted.
+- A town with "oe" in its real name (Boeslunde) no longer gets a false `matchWarning`.
+- BBR code 5 (medieval building parts) is "worth preserving", not a listed building.
+- `check_watchlist` never reports a source that failed, or was not asked without a key, as removed plans, buildings or flags, and keeps the old values for it (`notChecked`); a property that could not be looked up is an error, not "no changes".
+- A failed soil lookup is listed in `failedLayers` instead of reading as "no contamination"; `get_terrain` always carries its own `lookupPoint`.
+- A street address without a unit of its own reports the whole property's dwelling area, not the first building's (Gudrunsvej 8: ≈100.600 m², not 10.850 m²).
+- Price and valuation per m² use the area the BFE covers: a rental flat's own area only divides a condominium's figures.
+- Without a Datafordeleren key the report and screening say valuation and sales were not looked up.
+- Statistikbanken requests give up after 4 s and retry, so one stalled request no longer drops a report's statistics; parallel reports share one EJF token request.
+- A report for an address that was not found lists only why, not credential hints for sources it never asked.
+- `get_area_stats` gives the DAGI municipality code ("0791") and lists Statistikbanken tables that failed; `get_local_statistics` says why there is no market series.
+- `get_environment` says when the property's parcels were unknown (`parcelsChecked: false`), because a locality on the property can then look like a neighbour's, and lists soil layers that did not answer.
+- Every address tool accepts `bfe`, so plans, terrain, heritage and the rest work for a property without a street address; the lookup point is then `parcel`.
+- Site conditions list an item once, and a bare plan code ("23er058") is shown with the plan's name.
+- A rolled-back EJF ownership change is no longer shown as a sale: Egeskovvej 41 sold for 550.000 kr. in 1990, not 275.000 kr.
+- A valuation revised within the year is not added to its original as a second part (Egeskov 2003 showed 80.5M kr.).
+- A unit that is not a home (a school, a shop) has no dwelling area; its total area is `totalArea`.
+- `unitsTotal` counts every building's units, not a capped sample of five (Gudrunsvej 8: 1.155, not 390).
+- BBR buildings in lifecycle 12 ("midlertidig afsluttet") are dropped like demolished ones.
+- A house letter typed apart ("Egeskovvej 41 A") is part of the number. It was dropped and no. 41 returned without a warning.
+- `matchWarning` says when the postcode and town disagree ("Egeskovvej 41, 8800 Aarhus": 8800 is Viborg).
+- A village that is not a postal town ("Slotsgaden 5, Møgeltønder") is found through DAR's supplementary town names; it resolved to Copenhagen before. In that town a street differing only by its ending wins, with a warning.
+- Queries longer than the search's 73-character limit are cut at a whole word instead of failing with HTTP 400. A number typed first ("41 Egeskovvej") is moved after the street.
+- `resolve_property` without a Datafordeleren key says under `missing` that the BFE needs one, instead of leaving it out silently; an address with no registered BFE says that too.
+- Unknown tool arguments ("adress", "maxResults") are an error naming them instead of being ignored. `search_address` says when an address is outside Denmark.
 - Heritage in towns counts only the property's own address; neighbours are `atProperty: false`. Distance is used only on spread-out estates, where each building claims its nearest FBB point within 25 m. Møgeltønder and Ribe flagged the listed houses next door.
 - A postcode after a comma, before a town or at the end is a postcode, not a house number: "Egeskovvej, 8800 Viborg" was read as no. 8800 and resolved to no. 1. A street without a number now asks for one and suggests some.
 - Queries are cleaned before searching and matching: "c/o …" lines, "the house at … in …", "egeskovvej41" and "2.tv".

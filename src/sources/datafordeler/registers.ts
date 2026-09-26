@@ -344,7 +344,39 @@ export async function postcodesForTown(town: string): Promise<Array<{ code: stri
   const all = await postcodes();
   const exact = all.filter((item) => item.name.toLowerCase() === wanted);
   if (exact.length) return exact;
-  return all.filter((item) => item.name.toLowerCase().startsWith(`${wanted} `)).sort((a, b) => a.code.localeCompare(b.code));
+  const prefixed = all
+    .filter((item) => item.name.toLowerCase().startsWith(`${wanted} `))
+    .sort((a, b) => a.code.localeCompare(b.code));
+  if (prefixed.length) return prefixed;
+  return postcodesForLocality(town.trim(), all);
+}
+
+/**
+ * Villages that are not postal towns ("Møgeltønder" lies in 6270 Tønder) are DAR supplementary town names.
+ * Each name's postcode is read from one of its house numbers; several villages can share a name.
+ */
+async function postcodesForLocality(
+  name: string,
+  all: Array<{ code: string; name: string }>,
+): Promise<Array<{ code: string; name: string }>> {
+  const localities = await queryNodes("DAR", "DAR_SupplerendeBynavn", "id_lokalId", { navn: { eq: name } }, 6);
+  const postcodeIds = await Promise.all(
+    localities.map(async (locality) => {
+      const id = str(locality.id_lokalId);
+      if (!id) return undefined;
+      const house = (await queryNodes("DAR", "DAR_Husnummer", "postnummer", { supplerendeBynavn: { eq: id } }, 1))[0];
+      return str(house?.postnummer);
+    }),
+  );
+  const codes = await Promise.all(
+    [...new Set(postcodeIds.filter((id): id is string => Boolean(id)))].map(async (id) => {
+      const row = (await queryNodes("DAR", "DAR_Postnummer", "postnr", { id_lokalId: { eq: id } }, 1))[0];
+      return str(row?.postnr);
+    }),
+  );
+  return [...new Set(codes.filter((code): code is string => Boolean(code)))]
+    .sort()
+    .map((code) => all.find((item) => item.code === code) ?? { code, name });
 }
 
 export async function getParcels(bfe: string): Promise<SourceResult<Parcel[]>> {
@@ -435,6 +467,9 @@ const UNIT_FIELDS = [
 const FLOOR_FIELDS =
   "eta006BygningensEtagebetegnelse eta020SamletArealAfEtage eta021ArealAfUdnyttetDelAfTagetage eta022Kaelderareal eta023ArealAfLovligBeboelseIKaelder eta025Etagetype";
 
+/** BBR unit usages that are homes: 1xx dwellings, 510 summer house, 540 allotment house. */
+const isDwellingUsage = (code: string | undefined) => Boolean(code && /^(1\d\d|51\d|54\d)$/.test(code));
+
 function mapFloor(item: Record<string, unknown>): Floor {
   const typeCode = str(item.eta025Etagetype);
   return {
@@ -505,8 +540,12 @@ function mapUnit(item: Record<string, unknown>, addressId: string | undefined): 
     unitId: str(item.id_lokalId),
     buildingId: str(item.bygning),
     addressId: str(item.adresseIdentificerer) ?? addressId,
-    dwellingArea: num(item.enh027ArealTilBeboelse) ?? num(item.enh026EnhedensSamledeAreal),
+    // The unit's total area is its dwelling area only for a home; a school or shop without enh027 has none.
+    dwellingArea:
+      num(item.enh027ArealTilBeboelse) ??
+      (isDwellingUsage(usageCode) && !num(item.enh028ArealTilErhverv) ? num(item.enh026EnhedensSamledeAreal) : null),
     residentialArea: num(item.enh027ArealTilBeboelse),
+    totalArea: num(item.enh026EnhedensSamledeAreal),
     commercialArea: num(item.enh028ArealTilErhverv),
     rooms: num(item.enh031AntalVaerelser),
     kitchen: kitchenCode ? kitchenCode === "E" : null,
@@ -531,6 +570,8 @@ function mapUnit(item: Record<string, unknown>, addressId: string | undefined): 
 
 /** Units listed for a whole building or property; a block of flats can have hundreds. */
 const MAX_UNITS = 20;
+/** Units fetched with full fields per building; beyond this only a count is taken. */
+const UNIT_PAGE = 100;
 
 /**
  * Main buildings first: dwellings before other uses, then the building at the address itself, then the largest.
@@ -625,13 +666,28 @@ export async function getBuildingsAndUnits(args: {
         .map((row) => str(row.id_lokalId))
         .filter((id): id is string => Boolean(id))
         .slice(0, 5);
-      const rows = (
-        await Promise.all(mainIds.map((id) => queryNodes("BBR", "BBR_Enhed", UNIT_FIELDS, { bygning: { eq: id } }, 100)))
-      )
-        .flat()
-        .filter(isCurrentBbrRow);
-      if (rows.length > MAX_UNITS) unitsTotal = rows.length;
+      const allMainIds = buildingRows
+        .filter((row) => !isOutbuilding(str(row.byg021BygningensAnvendelse)))
+        .map((row) => str(row.id_lokalId))
+        .filter((id): id is string => Boolean(id));
+      const pages = await Promise.all(
+        mainIds.map((id) => queryNodes("BBR", "BBR_Enhed", UNIT_FIELDS, { bygning: { eq: id } }, UNIT_PAGE)),
+      );
+      const rows = pages.flat().filter(isCurrentBbrRow);
       unitRows = rows.slice(0, MAX_UNITS);
+      // The rows above are a sample when a building has more than one page or there are more buildings.
+      // Gudrunsvej 8 has 1,155 units in 13 blocks; counting only the sample said 390.
+      const partial = allMainIds.length > mainIds.length || pages.some((page) => page.length >= UNIT_PAGE);
+      if (partial) {
+        const counts = await Promise.all(
+          allMainIds.map(async (id) =>
+            (await queryAllNodes("BBR", "BBR_Enhed", "id_lokalId status", { bygning: { eq: id } })).filter(isCurrentBbrRow).length,
+          ),
+        );
+        unitsTotal = counts.reduce((sum, count) => sum + count, 0);
+      } else if (rows.length > MAX_UNITS) {
+        unitsTotal = rows.length;
+      }
     }
 
     const buildings = await Promise.all(
@@ -706,13 +762,19 @@ export function mapValuationRows(bfe: string, rows: Array<Record<string, unknown
   }
   const history: ValuationEntry[] = [];
   for (const entries of byYear.values()) {
-    const byArea = new Map<string, ValuationEntry>();
-    for (const entry of entries) {
-      const area = String(entry.valuedArea ?? "?");
-      const current = byArea.get(area);
-      if (!current || (entry.changedOn ?? "") > (current.changedOn ?? "")) byArea.set(area, entry);
+    // A revision within the year can change the area a little (Egeskov 2003: 4,673,916 m² in January, 4,762,821 m²
+    // in October); areas within 5 % are the same valuation, not two parts to add up.
+    const sameArea = (a: number | null | undefined, b: number | null | undefined) =>
+      a === b || (Boolean(a) && Boolean(b) && Math.abs(a! - b!) <= 0.05 * Math.max(a!, b!));
+    const clusters: ValuationEntry[] = [];
+    for (const entry of [...entries].sort((a, b) => (a.changedOn ?? "").localeCompare(b.changedOn ?? ""))) {
+      const index = clusters.findIndex((kept) => sameArea(kept.valuedArea, entry.valuedArea));
+      if (index === -1) clusters.push(entry);
+      else clusters[index] = entry;
     }
-    const parts = [...byArea.values()];
+    // A later row of zeros with no area (Levantkaj 2015) is a placeholder, not a second part.
+    const empty = (entry: ValuationEntry) => !entry.valuedArea && !entry.propertyValue && !entry.landValue;
+    const parts = clusters.some((entry) => !empty(entry)) ? clusters.filter((entry) => !empty(entry)) : clusters;
     if (parts.length === 1 || parts.some((part) => part.valuedArea === null || part.valuedArea === undefined)) {
       history.push(...parts);
       continue;
@@ -815,13 +877,16 @@ export async function getTrades(bfe: string): Promise<SourceResult<Trade[]>> {
     const transfers = await queryNodes(
       "EJF",
       "EJF_Ejerskifte",
-      "id_lokalId overtagelsesdato overdragelsesmaade handelsoplysningerLokalId bestemtFastEjendomBFENr",
+      "id_lokalId overtagelsesdato overdragelsesmaade handelsoplysningerLokalId bestemtFastEjendomBFENr status",
       { bestemtFastEjendomBFENr: { eq: Number(bfe) || bfe } },
       50,
       { auth: "oauth" },
     );
+    // A rolled-back change stays in the register next to its correction: Egeskovvej 41 has 275.000 kr. rolled back
+    // and 550.000 kr. current for the same 1990 sale.
+    const current = transfers.filter((item) => !/tilbagerul|annul|slettet/i.test(str(item.status) ?? ""));
     const trades = await Promise.all(
-      transfers.map(async (item): Promise<Trade> => {
+      current.map(async (item): Promise<Trade> => {
         const tradeId = str(item.handelsoplysningerLokalId);
         const sale = tradeId
           ? (

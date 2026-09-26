@@ -73,7 +73,18 @@ describe("address search", () => {
     expect(danishSpelling("HC Andersens Blvd 2 Copenhagen")).toBe("H.C. Andersens Boulevard 2 København");
     expect(danishSpelling("Boulevarden 1 Aalborg")).toBe("Boulevarden 1 Aalborg");
     expect(cleanQuery("🏠🏠 Nyhavn 18")).toBe("Nyhavn 18");
-    expect(cleanQuery("a".repeat(3000))).toHaveLength(200);
+    // The search answers HTTP 400 above 73 characters; the text is cut at a whole word.
+    expect(cleanQuery("a".repeat(3000))).toHaveLength(73);
+    expect(cleanQuery(`Egeskovvej 41, 8800 Viborg ${"X".repeat(3000)}`)).toBe("Egeskovvej 41, 8800 Viborg");
+  });
+
+  it("keeps a house letter typed apart with its number, and takes the number first as in English", () => {
+    expect(cleanQuery("Egeskovvej 41 A, 8800 Viborg")).toBe("Egeskovvej 41A, 8800 Viborg");
+    expect(cleanQuery("Nyhavn 18 a")).toBe("Nyhavn 18a");
+    expect(cleanQuery("Hovedgaden 1 A 2 th")).toBe("Hovedgaden 1A 2 th");
+    expect(cleanQuery("Istedgade 60 2 TV 1650")).toBe("Istedgade 60 2 TV 1650");
+    expect(cleanQuery("41 Egeskovvej, 8800 Viborg")).toBe("Egeskovvej 41, 8800 Viborg");
+    expect(cleanQuery("8800 Viborg")).toBe("8800 Viborg");
   });
 });
 
@@ -96,6 +107,21 @@ describe("address resolution", () => {
       hit("Strandvejen 100, 3300 Frederiksværk"),
     ])).toBeUndefined();
     expect(matchWarning("Egeskovvej 41, 8800 Viborg", "Egeskovvej 41, Hald Ege, 8800 Viborg")).toBeUndefined();
+  });
+
+  it("warns when the postcode and the town asked for disagree", () => {
+    expect(matchWarning("Egeskovvej 41, 8800 Aarhus", "Egeskovvej 41, Hald Ege, 8800 Viborg")).toMatch(/8800 er Viborg, ikke Aarhus/);
+    expect(matchWarning("Nyhavn 18, 1051 Kbh K", "Nyhavn 18, 1051 København K")).toBeUndefined();
+    expect(matchWarning("Slotsgaden 5, 6270 Møgeltønder", "Slotsgaden 5, Møgeltønder, 6270 Tønder")).toBeUndefined();
+    expect(matchWarning("Frederiksberg Allé 10, 1820 Frederiksb", "Frederiksberg Alle 10, 1820 Frederiksberg C")).toBeUndefined();
+    // "oe" is part of the real name here, not ASCII for "ø".
+    expect(matchWarning("Baunehøjvej 2, 4242 Boeslunde", "Baunehøjvej 2, 4242 Boeslunde")).toBeUndefined();
+    expect(matchWarning("Torvet 1 Boeslunde", "Torvet 1, 4242 Boeslunde")).toBeUndefined();
+    expect(matchWarning("Nørrebrogade 1 Koebenhavn N", "Nørrebrogade 1, 2200 København N")).toBeUndefined();
+  });
+
+  it("warns about a house letter typed apart that does not exist", () => {
+    expect(matchWarning("Egeskovvej 41 A, 8800 Viborg", "Egeskovvej 41, Hald Ege, 8800 Viborg")).toMatch(/husnummer 41A blev til 41/);
   });
 });
 

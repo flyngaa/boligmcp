@@ -26,6 +26,8 @@ export interface FlagInput {
   units?: Unit[];
   /** All units when `units` is only the first of many. */
   unitsTotal?: number;
+  /** The BFE is the address's own unit (a condominium flat), so prices and valuations are the unit's. */
+  unitIsProperty?: boolean;
   ground?: Ground;
   parcels?: Parcel[];
   valuation?: Valuation;
@@ -33,6 +35,18 @@ export interface FlagInput {
   site?: SiteConditions;
   environment?: EnvironmentInfo;
   heritage?: HeritageInfo;
+}
+
+/**
+ * The dwelling area a BFE's price or valuation covers. A condominium flat is its own BFE; otherwise the BFE is the
+ * whole property, even when the address is one rental flat in it (Istedgade 60, 2. tv: 68 m² of a 2,513 m² building).
+ */
+export function bfeDwellingArea(input: Pick<FlagInput, "buildings" | "units" | "unitIsProperty">): number | undefined {
+  if (input.unitIsProperty && input.units?.length === 1) return input.units[0]?.dwellingArea ?? undefined;
+  const total = (input.buildings ?? [])
+    .filter((b) => !isOutbuilding(b.usageCode))
+    .reduce((sum, b) => sum + (b.dwellingArea ?? 0), 0);
+  return total || undefined;
 }
 
 export function flagInputFrom(results: {
@@ -46,6 +60,7 @@ export function flagInputFrom(results: {
   trades?: SourceResult<Trade[]>;
   terrain?: SourceResult<TerrainInfo>;
   footprints?: SourceResult<Footprint[]>;
+  ids?: { mainBfe?: string };
 }): FlagInput {
   const data = <T>(result?: SourceResult<T>) => (result?.status === "ok" ? result.data : undefined);
   const bbr = data(results.buildings);
@@ -53,6 +68,7 @@ export function flagInputFrom(results: {
     buildings: bbr?.buildings,
     units: bbr?.units,
     unitsTotal: bbr?.unitsTotal,
+    unitIsProperty: Boolean(results.ids?.mainBfe),
     ground: bbr?.ground,
     parcels: data(results.parcel),
     valuation: data(results.valuation),
@@ -249,8 +265,10 @@ export function buildFlags(input: FlagInput): Flag[] {
   }
 
   // Listed / worth preserving
-  const listed = buildings.filter((b) => b.listingCode && Number(b.listingCode) <= 7);
-  const preserve = buildings.filter((b) => b.listingCode === "8" || b.listingCode === "9");
+  // BBR Fredning: 1, 2, 4, 6, 7 are listings, 3 a registered preservation declaration. 5 (medieval parts, nothing
+  // registered), 8 and 9 mark a building worth preserving, not a binding restriction.
+  const listed = buildings.filter((b) => ["1", "2", "3", "4", "6", "7"].includes(b.listingCode ?? ""));
+  const preserve = buildings.filter((b) => ["5", "8", "9"].includes(b.listingCode ?? ""));
   if (listed.length) {
     add({
       id: "listed_building",
@@ -591,11 +609,7 @@ export function buildFlags(input: FlagInput): Flag[] {
   // Last sale
   const sale = lastSale(input.trades);
   if (sale?.price) {
-    // The price covers the whole property: one unit's area only when it is the only unit.
-    const area =
-      input.units?.length === 1
-        ? input.units[0]?.dwellingArea
-        : buildings.filter((b) => !isOutbuilding(b.usageCode)).reduce((sum, b) => sum + (b.dwellingArea ?? 0), 0) || undefined;
+    const area = bfeDwellingArea(input);
     add({
       id: "last_sale",
       severity: "info",

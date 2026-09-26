@@ -42,7 +42,7 @@ export function summarizeTerrain(
   terrain: RasterGrid,
   surface: RasterGrid | undefined,
   wide: RasterGrid,
-  lookupPoint?: "building" | "address",
+  lookupPoint?: "building" | "address" | "parcel",
 ): TerrainInfo | undefined {
   const terrainM = centreValue(terrain);
   const around = validValues(wide).sort((a, b) => a - b);
@@ -71,7 +71,7 @@ export function summarizeTerrain(
 export async function getTerrainAt(
   x: number,
   y: number,
-  options: { lookupPoint?: "building" | "address" } = {},
+  options: { lookupPoint?: "building" | "address" | "parcel" } = {},
 ): Promise<SourceResult<TerrainInfo>> {
   if (!getConfig().datafordelerApiKey) return datafordelerUnavailable("dhm");
   try {
@@ -82,10 +82,11 @@ export async function getTerrainAt(
         // 5 m pixels are plenty for the surroundings and keep the download small.
         coverage("dhm_terraen", x, y, SURROUNDINGS_RADIUS_M, 100),
       ]);
-      return summarizeTerrain(terrain, surface, wide, options.lookupPoint) ?? null;
+      return summarizeTerrain(terrain, surface, wide) ?? null;
     });
     if (!result) return unavailable("dhm", "not_found", "No terrain data at this point (outside Denmark or at sea)");
-    return ok("dhm", result);
+    // The label is the caller's, not part of the cached heights: the aerial photo looks up the same point unlabelled.
+    return ok("dhm", { ...result, lookupPoint: options.lookupPoint });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (message.startsWith("FORBIDDEN")) {

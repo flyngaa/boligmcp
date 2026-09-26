@@ -114,6 +114,10 @@ export const PropertyIdsSchema = z.object({
   coordinate: CoordinateSchema.optional(),
   /** Set when the address found is not exactly what was asked for (another floor, door, number or town). */
   matchWarning: z.string().optional(),
+  /** Ids that could not be given, and why: no BFE without the user's Datafordeleren key, or none registered. */
+  missing: z
+    .array(z.object({ field: z.string(), reason: UnavailableReasonSchema, detail: z.string().optional() }))
+    .optional(),
 });
 export type PropertyIds = z.infer<typeof PropertyIdsSchema>;
 
@@ -188,6 +192,8 @@ export const UnitSchema = z.object({
   housingTypeCode: z.string().optional(),
   housingType: z.string().optional(),
   residentialArea: z.number().nullable().optional(),
+  /** The unit's total area (enh026), whatever it is used for. */
+  totalArea: z.number().nullable().optional(),
   commercialArea: z.number().nullable().optional(),
   tenureCode: z.string().optional(),
   tenure: z.string().optional(),
@@ -334,7 +340,7 @@ export const PlanInfoSchema = z.object({
   items: z.array(PlanItemSchema),
   /** Plans within ~40 m that do not cover the lookup point. */
   nearby: z.array(PlanItemSchema).optional(),
-  lookupPoint: z.enum(["building", "address"]).optional(),
+  lookupPoint: z.enum(["building", "address", "parcel"]).optional(),
 });
 export type PlanInfo = z.infer<typeof PlanInfoSchema>;
 
@@ -361,6 +367,11 @@ export type EnvironmentItem = z.infer<typeof EnvironmentItemSchema>;
 
 export const EnvironmentInfoSchema = z.object({
   items: z.array(EnvironmentItemSchema),
+  /** Layers that did not answer; their localities may be missing. */
+  failedLayers: z.array(z.string()).optional(),
+  /** False when the property's parcels were unknown, so onProperty only reflects the lookup point. */
+  parcelsChecked: z.boolean().optional(),
+  note: z.string().optional(),
 });
 export type EnvironmentInfo = z.infer<typeof EnvironmentInfoSchema>;
 
@@ -394,7 +405,7 @@ export const SiteConditionsSchema = z.object({
   items: z.array(SiteConditionSchema),
   checkedLayers: z.number(),
   failedLayers: z.array(z.string()),
-  lookupPoint: z.enum(["building", "address"]).optional(),
+  lookupPoint: z.enum(["building", "address", "parcel"]).optional(),
 });
 export type SiteConditions = z.infer<typeof SiteConditionsSchema>;
 
@@ -428,7 +439,7 @@ export type Footprint = z.infer<typeof FootprintSchema>;
 export const TerrainInfoSchema = z.object({
   /** Heights are metres in DVR90, Denmark's vertical datum (close to mean sea level). */
   datum: z.literal("DVR90"),
-  lookupPoint: z.enum(["building", "address"]).optional(),
+  lookupPoint: z.enum(["building", "address", "parcel"]).optional(),
   terrainM: z.number(),
   /** Highest surface (roof, trees) within a few metres of the lookup point. */
   surfaceMaxM: z.number().optional(),
@@ -481,6 +492,8 @@ export const AreaStatsSchema = z.object({
   municipalityCode: z.string().optional(),
   municipalityName: z.string().optional(),
   stats: z.array(AreaStatSchema),
+  /** Statistikbanken tables that did not answer; their figures are missing, not zero. */
+  failedTables: z.array(z.string()).optional(),
 });
 export type AreaStats = z.infer<typeof AreaStatsSchema>;
 

@@ -35,13 +35,26 @@ let token: { value: string; expiresAt: number; clientId: string } | undefined;
 
 export function resetOAuthTokenForTests(): void {
   token = undefined;
+  tokenRequest = undefined;
 }
 
 /** Client-credentials token for the user's own OAuth IT-system, reused until shortly before it expires. */
+/** One token request at a time: ten reports started together asked for ten tokens (up to 4 s each). */
+let tokenRequest: { clientId: string; promise: Promise<string> } | undefined;
+
 export async function getOAuthToken(): Promise<string> {
   const { datafordelerOAuthClientId: clientId, datafordelerOAuthClientSecret: secret } = getConfig();
   if (!clientId || !secret) throw new Error("MISSING_OAUTH: DATAFORDELER_OAUTH_CLIENT_ID and _SECRET are not set");
   if (token && token.clientId === clientId && token.expiresAt > Date.now() + 60_000) return token.value;
+  if (tokenRequest?.clientId === clientId) return tokenRequest.promise;
+  const promise = requestToken(clientId, secret).finally(() => {
+    if (tokenRequest?.promise === promise) tokenRequest = undefined;
+  });
+  tokenRequest = { clientId, promise };
+  return promise;
+}
+
+async function requestToken(clientId: string, secret: string): Promise<string> {
   const response = await fetch(TOKEN_URL, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },

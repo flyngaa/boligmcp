@@ -37,6 +37,12 @@ describe("EJF OAuth", () => {
     expect(await getOAuthToken()).toBe("tok-123");
     expect(await getOAuthToken()).toBe("tok-123");
     expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // Requests started together share one token request.
+    resetOAuthTokenForTests();
+    const together = await Promise.all([getOAuthToken(), getOAuthToken(), getOAuthToken()]);
+    expect(together).toEqual(["tok-123", "tok-123", "tok-123"]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     const [url, init] = fetchMock.mock.calls[0]!;
     expect(String(url)).toBe("https://auth.datafordeler.dk/realms/distribution/protocol/openid-connect/token");
     const body = new URLSearchParams(String(init?.body));
@@ -62,6 +68,8 @@ describe("get_trades", () => {
                 { id_lokalId: "e1", overtagelsesdato: "2012-06-01T00:00:00Z", overdragelsesmaade: "Almindelig fri handel", handelsoplysningerLokalId: "h1" },
                 { id_lokalId: "e2", overtagelsesdato: "2019-03-15T00:00:00Z", overdragelsesmaade: "Almindelig fri handel", handelsoplysningerLokalId: "h2" },
                 { id_lokalId: "e3", overtagelsesdato: "1998-01-01T00:00:00Z", overdragelsesmaade: "Arv" },
+                // Rolled back and replaced by e2's figures: must not be shown as a sale.
+                { id_lokalId: "e4", overtagelsesdato: "2019-03-15T00:00:00Z", overdragelsesmaade: "Almindelig fri handel", handelsoplysningerLokalId: "h9", status: "tilbagerullet" },
               ],
             },
           },
@@ -110,12 +118,20 @@ describe("get_trades", () => {
 
 describe("last sale flag", () => {
   it("adds price per m² and the attribution", () => {
-    const flags = buildFlags({
-      units: [{ dwellingArea: 144 }],
-      trades: [{ date: "2019-03-15", price: 2_150_000, transferType: "Almindelig fri handel", attribution: "Kilde: Ejerfortegnelsen, Geodatastyrelsen (CC BY 4.0)" }],
-    });
+    const trades = [{ date: "2019-03-15", price: 2_150_000, transferType: "Almindelig fri handel", attribution: "Kilde: Ejerfortegnelsen, Geodatastyrelsen (CC BY 4.0)" }];
+    const flags = buildFlags({ buildings: [{ buildingId: "b1", usageCode: "120", dwellingArea: 144 }], units: [{ dwellingArea: 144 }], trades });
     const sale = flags.find((flag) => flag.id === "last_sale");
     expect(sale?.title).toBe("Seneste handel 2019-03-15");
     expect(sale?.detail).toMatch(/2\.150\.000 kr\. \(14\.931 kr\. pr\. m² bolig\).*Ejerfortegnelsen/);
+  });
+
+  it("divides by the whole property's area unless the flat is its own BFE", () => {
+    // Istedgade 60, 2. tv: one rental flat of 68 m² in a 2,513 m² building sold as one property.
+    const trades = [{ date: "2019-03-15", price: 50_000_000, transferType: "Almindelig fri handel" }];
+    const input = { buildings: [{ buildingId: "b1", usageCode: "140", dwellingArea: 2513 }], units: [{ dwellingArea: 68 }], trades };
+    expect(buildFlags(input).find((flag) => flag.id === "last_sale")?.detail).toMatch(/19\.897 kr\. pr\. m²/);
+    // A condominium flat: the sale is the flat's own.
+    const condo = buildFlags({ ...input, trades: [{ ...trades[0]!, price: 6_800_000 }], unitIsProperty: true });
+    expect(condo.find((flag) => flag.id === "last_sale")?.detail).toMatch(/100\.000 kr\. pr\. m²/);
   });
 });
