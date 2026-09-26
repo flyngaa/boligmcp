@@ -7,8 +7,16 @@ on:
 jobs:
   npm:
     runs-on: ubuntu-latest
-    if: ${{ secrets.NPM_TOKEN != '' }}
+    # The secrets context is not allowed in a job's `if`: GitHub rejected the whole file, so it failed on every
+    # push and could never publish. The token goes through env, which a step's `if` may read.
+    env:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
+      - name: Stop without an npm token
+        if: ${{ env.NPM_TOKEN == '' }}
+        run: |
+          echo "::error::Add the NPM_TOKEN repository secret to publish to npm."
+          exit 1
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
         with:
@@ -22,4 +30,4 @@ jobs:
       - run: pnpm build
       - run: pnpm publish --access public --no-git-checks
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ env.NPM_TOKEN }}
