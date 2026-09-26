@@ -8,35 +8,52 @@ Protected owner names of private individuals are never requested.
 
 ## Install
 
-```bash
-npx boligmcp
-```
-
-Or clone and run locally:
+Bolig-MCP is not on npm yet, so install it from source. You need Node.js 20 or newer and [pnpm](https://pnpm.io).
 
 ```bash
+git clone https://github.com/flyngaa/boligmcp.git
+cd boligmcp
 pnpm install
 pnpm build
-node dist/index.js
+node dist/index.js setup   # add your own keys, see below
 ```
+
+Then point your MCP client at the built server, using the full path to your clone:
+
+- **Claude Code:**
+
+  ```bash
+  claude mcp add --scope user boligmcp -- node /path/to/boligmcp/dist/index.js
+  ```
+
+- **Claude Desktop, Cursor and other clients:** add it to the client's MCP config, e.g. `claude_desktop_config.json`:
+
+  ```json
+  { "mcpServers": { "boligmcp": { "command": "node", "args": ["/path/to/boligmcp/dist/index.js"] } } }
+  ```
+
+Restart the client and ask about a Danish address, e.g. "Lav en rapport om Egeskovvej 41, 8800 Viborg".
+
+Once Bolig-MCP is published to npm, `npx -y boligmcp` replaces the clone and the path. The tools' messages already say
+`npx -y boligmcp setup`; from source, run `node dist/index.js setup` in your clone instead.
 
 ### Credentials: bring your own
 
 Bolig-MCP never ships with keys. Each user adds their own, outside the chat:
 
-- **Claude Desktop (MCP bundle):** install the `.mcpb`; Claude Desktop asks for the keys at install and masks them (see `manifest.json`).
-- **Claude Code, Cursor and other clients:** run once in a terminal:
+- **Any client:** run once in a terminal, in your clone:
 
   ```bash
-  npx -y boligmcp setup
+  node dist/index.js setup
   ```
 
-  It asks for each key with hidden input, checks the Datafordeleren key against the API and saves it to `~/.config/boligmcp/credentials.json` (mode 600). `npx -y boligmcp setup --show` shows what is set, masked.
+  It asks for each key with hidden input, checks the Datafordeleren key against the API and saves it to `~/.config/boligmcp/credentials.json` (mode 600). `node dist/index.js setup --show` shows what is set, masked.
 - **Or** set env vars in the client config. Env wins over the credentials file.
 
   ```bash
-  claude mcp add --scope user boligmcp -e DATAFORDELER_API_KEY=<your key> -- npx -y boligmcp
+  claude mcp add --scope user boligmcp -e DATAFORDELER_API_KEY=<your key> -- node /path/to/boligmcp/dist/index.js
   ```
+- **Claude Desktop (MCP bundle):** `npx -y @anthropic-ai/mcpb pack` in your clone (after `pnpm build`) makes a `.mcpb` file. Installing it in Claude Desktop asks for the keys and masks them (see `manifest.json`).
 
 When a key is missing, the tools say which source is affected and how to get access, and the server instructs the model never to ask for keys in the chat. A `.env` file is only read when `BOLIGMCP_ENV_FILE` points to it (used by `pnpm dev`). The cache lives in `~/.cache/boligmcp/` unless `CACHE_PATH` is set.
 
