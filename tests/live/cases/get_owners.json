@@ -1,0 +1,5 @@
+[
+  {"id": "go_private_home", "tool": "get_owners", "args": {"query": "Thestrupvej 4, 8800 Viborg"}, "expect": [{"path": "$text", "notMatches": "PersonNr|\\\\b\\\\d{6}-?\\\\d{4}\\\\b", "why": "never a CPR number"}, {"path": "$text", "matches": "\"(status|kind)\""}]},
+  {"id": "go_bfe", "tool": "get_owners", "args": {"bfe": "3451166"}, "expect": [{"path": "$text", "notMatches": "PersonNr"}]},
+  {"id": "go_no_oauth", "tool": "get_owners", "args": {"bfe": "3451166"}, "env": "no_credentials", "expect": [{"path": "reason", "equals": "missing_credentials"}, {"path": "detail", "matches": "Do not ask the user to paste"}]}
+]

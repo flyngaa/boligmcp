@@ -5,6 +5,7 @@ import { getAreaStatsForMunicipality, getParishStats, getRegionalMarket, marketC
 import { getFootprints } from "../sources/datafordeler/geodanmark.js";
 import { getNearbyServices } from "../sources/datafordeler/nearby.js";
 import { getPropertyLocation, type PropertyLocation } from "../sources/datafordeler/ebr.js";
+import { getOwners } from "../sources/datafordeler/owners.js";
 import { getEnergyLabel } from "../sources/emodata.js";
 import { getHeritageAt } from "../sources/fbb.js";
 import { getEnvironmentAt } from "../sources/miljoportal.js";
@@ -30,6 +31,7 @@ import type {
   HeritageInfo,
   Ground,
   NearbyServices,
+  Owner,
   Parcel,
   PlanInfo,
   PlanItem,
@@ -144,6 +146,7 @@ export interface PropertyData {
   parcel?: SourceResult<Parcel[]>;
   valuation?: SourceResult<Valuation>;
   trades?: SourceResult<Trade[]>;
+  owners?: SourceResult<Owner[]>;
   admin?: SourceResult<AdminAreas>;
   plans?: SourceResult<PlanInfo>;
   site?: SourceResult<SiteConditions>;
@@ -202,6 +205,7 @@ export async function collectPropertyData(
     addressCoord ? getAdminAreasAt(addressCoord.x, addressCoord.y) : Promise.resolve(undefined),
     skip.energy || !ids ? Promise.resolve(undefined) : getEnergyLabel({ bfe: ids.bfe }),
     ids?.bfe ? getPropertyLocation(ids.bfe) : Promise.resolve(undefined),
+    ids?.bfe && !skip.trades ? getOwners(ids.bfe) : Promise.resolve(undefined),
   ]);
   const buildings = unwrap(first[0]) as BbrResult | undefined;
   const parcel = unwrap(first[1]) as SourceResult<Parcel[]> | undefined;
@@ -210,6 +214,7 @@ export async function collectPropertyData(
   const admin = unwrap(first[4]) as SourceResult<AdminAreas> | undefined;
   const energy = unwrap(first[5]) as SourceResult<EnergyLabel> | undefined;
   const location = unwrap(first[6]) as SourceResult<PropertyLocation> | undefined;
+  const owners = unwrap(first[7]) as SourceResult<Owner[]> | undefined;
 
   if (admin?.status === "ok") municipalityCode = admin.data.municipalityCode ?? municipalityCode;
 
@@ -245,6 +250,7 @@ export async function collectPropertyData(
     parcel,
     valuation,
     trades,
+    owners,
     admin,
     energy,
     location,
@@ -262,6 +268,17 @@ export async function collectPropertyData(
 }
 
 export { lastSale };
+
+/** One line per owner: a company by name and CVR, a private person only as such. */
+export function ownerSummary(owners: SourceResult<Owner[]> | undefined): string[] | undefined {
+  if (owners?.status !== "ok") return undefined;
+  return owners.data.map((owner) => {
+    const share = owner.share !== undefined && owner.share < 1 ? ` (${Math.round(owner.share * 1000) / 10} %)` : "";
+    if (owner.kind === "company") return `${owner.company?.name ?? "Selskab"}, CVR ${owner.cvr}${share}`;
+    if (owner.kind === "private_person") return `Privatperson${share}`;
+    return `${owner.ownershipType ?? "Anden ejer"}${share}`;
+  });
+}
 
 export function summarize(data: PropertyData) {
   const { ids, buildings, valuation, trades, admin, plans, environment, energy, parcel, site } = data;
@@ -306,6 +323,7 @@ export function summarize(data: PropertyData) {
     lastTrade: latestTrade?.price,
     lastTradeDate: latestTrade?.date,
     lastTradeType: latestTrade?.transferType,
+    owners: ownerSummary(data.owners),
     zone: planItems.find((item) => item.type === "zone")?.zoneStatus,
     localPlans: plans?.status === "ok" ? planItems.filter((item) => item.type === "local_plan").length : undefined,
     // Some municipalities repeat the plan number in the name ("R24.B.4.16 - B4").
@@ -344,6 +362,7 @@ export function missingSources(data: PropertyData): Array<{ source: string; reas
     data.parcel,
     data.valuation,
     data.trades,
+    data.owners,
     data.admin,
     data.plans,
     data.site,
@@ -405,6 +424,7 @@ export async function buildPropertyReport(input: {
     parcel: data.parcel ? compact(data.parcel, 8) : undefined,
     valuation: data.valuation,
     trades: data.trades ? compact(data.trades, 5) : undefined,
+    owners: data.owners ? compact(data.owners, 10) : undefined,
     admin: data.admin,
     plans: data.plans ? compact(data.plans, 10) : undefined,
     site: data.site ? compact(data.site, 15) : undefined,

@@ -67,6 +67,8 @@ When a key is missing, the tools say which source is affected and how to get acc
 | `get_parcel` | Matrikel parcels for a BFE, including fredskov, strandbeskyttelse and klitfredning |
 | `get_valuation` | Official VUR values and history |
 | `get_trades` | Sale prices and dates from EJF (your own approved OAuth access; no names) |
+| `get_owners` | Current owners: a company by CVR with its company data, a private person only as "privatperson" and a share (your own approved EJF access to `CustomEjerskabBegraenset`) |
+| `get_company` | Public CVR data for a CVR number: name, status, form, address, industry, head count. Not a company's owners or management |
 | `get_admin_areas` | Municipality, region, parish, court and police districts |
 | `get_plans` | Local plans, subareas, frameworks with building rights, zone, plan proposals |
 | `get_site_conditions` | Heat supply, sewer, flood/erosion, groundwater, noise, livestock, planned roads/facilities, heritage |
@@ -108,7 +110,7 @@ See [docs/credentials.md](docs/credentials.md) for how to get each key.
 | Variable | Required for |
 |---|---|
 | `DATAFORDELER_API_KEY` | BFE chain, BBR, VUR, DAGI |
-| `DATAFORDELER_OAUTH_CLIENT_ID` / `_SECRET` | Sale prices from EJF, after Geodatastyrelsen approves your own request. Never owner names |
+| `DATAFORDELER_OAUTH_CLIENT_ID` / `_SECRET` | Sale prices and owners from EJF, after Geodatastyrelsen approves your own request. Company owners by CVR; never names or CPR numbers of private people |
 | `ADRESSEVAELGER_TOKEN` | Optional; defaults to `adressevaelger123` |
 | `EMODATA_USER` / `EMODATA_PASSWORD` | Energy labels |
 | `DATAFORSYNINGEN_TOKEN` | `get_aerial_photo` |

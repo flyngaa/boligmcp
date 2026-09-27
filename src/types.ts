@@ -17,6 +17,7 @@ export const SourceIdSchema = z.enum([
   "emodata",
   "dataforsyningen",
   "fbb",
+  "cvr",
 ]);
 export type SourceId = z.infer<typeof SourceIdSchema>;
 
@@ -261,6 +262,51 @@ export const TradeSchema = z.object({
   attribution: z.string().optional(),
 });
 export type Trade = z.infer<typeof TradeSchema>;
+
+/** A company from CVR. Participants who are people are counted, never named. */
+export const CompanySchema = z.object({
+  cvr: z.string(),
+  name: z.string().optional(),
+  /** "aktiv", "ophørt", … as CVR states it. */
+  status: z.string().optional(),
+  form: z.string().optional(),
+  formCode: z.string().optional(),
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+  address: z.string().optional(),
+  /** DAR address id of the registered address, when CVR has one. */
+  addressId: z.string().optional(),
+  municipality: z.string().optional(),
+  industry: z.string().optional(),
+  industryCode: z.string().optional(),
+  secondaryIndustries: z.array(z.string()).default([]),
+  /** Latest head count, or its interval when no count is published. Left out when older than two years. */
+  employees: z
+    .object({ count: z.number().optional(), min: z.number().optional(), max: z.number().optional(), period: z.string().optional() })
+    .optional(),
+  /** Reklamebeskyttet: the company has opted out of marketing contact. */
+  advertisingProtected: z.boolean().optional(),
+  /** Fully liable participants (I/S, K/S). Companies are listed by CVR; people only counted. */
+  liableParticipants: z
+    .object({ companies: z.array(z.object({ cvr: z.string().optional(), name: z.string().optional() })), people: z.number() })
+    .optional(),
+  attribution: z.string().optional(),
+});
+export type Company = z.infer<typeof CompanySchema>;
+
+/** A current owner from EJF. A private person is only a kind and a share: no name, no CPR number. */
+export const OwnerSchema = z.object({
+  kind: z.enum(["company", "private_person", "other"]),
+  /** EJF ejerforholdskode and its label, e.g. "30" Aktie-, anpart- eller andet selskab. */
+  ownershipCode: z.string().optional(),
+  ownershipType: z.string().optional(),
+  /** Actual share as a fraction, e.g. 0.5. */
+  share: z.number().optional(),
+  since: z.string().optional(),
+  cvr: z.string().optional(),
+  company: CompanySchema.optional(),
+});
+export type Owner = z.infer<typeof OwnerSchema>;
 
 export const AdminAreasSchema = z.object({
   municipalityCode: z.string().optional(),

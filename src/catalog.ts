@@ -89,16 +89,26 @@ export const SOURCES: SourceDefinition[] = [
   },
   {
     id: "ejf",
-    name: "EJF sale prices (no owner names)",
+    name: "EJF sale prices and owners (no names of private people)",
     tier: "T2",
     envKeys: ["datafordelerOAuthClientId", "datafordelerOAuthClientSecret"],
     ttlSeconds: 60 * 60 * 24 * 7,
     docsUrl: "https://confluence.kds.dk/pages/viewpage.action?pageId=187105434",
-    notes: "Owner names of private individuals are out of scope.",
+    notes: "Owner names and CPR numbers of private individuals are never requested. Owners need CustomEjerskabBegraenset approved as well.",
     setup:
-      "Needs your own approved EJF access: MitID Erhverv, an IT-system with OAuth Shared Secret, and a request to Geodatastyrelsen via Datafordeler Administration for EJF_Ejerskifte and EJF_Handelsoplysninger (see docs/credentials.md). Then run `" +
+      "Needs your own approved EJF access: MitID Erhverv, an IT-system with OAuth Shared Secret, and a request to Geodatastyrelsen via Datafordeler Administration for EJF_Ejerskifte and EJF_Handelsoplysninger, plus CustomEjerskabBegraenset for owners (see docs/credentials.md). Then run `" +
       SETUP_COMMAND +
       "` and enter the OAuth Client ID and Shared Secret.",
+  },
+  {
+    id: "cvr",
+    setup: DATAFORDELER_SETUP,
+    name: "CVR (companies)",
+    tier: "T1",
+    envKeys: ["datafordelerApiKey"],
+    ttlSeconds: 60 * 60 * 24,
+    docsUrl: "https://datafordeler.dk/dataoversigt/det-centrale-virksomhedsregister-cvr/cvr-graphql/",
+    notes: "Company name, status, form, address, industry and head count. Owners and management of a company are not in this API; CVRPerson is never requested.",
   },
   {
     id: "plandata",

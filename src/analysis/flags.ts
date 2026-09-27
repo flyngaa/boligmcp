@@ -6,6 +6,7 @@ import type {
   Footprint,
   Ground,
   HeritageInfo,
+  Owner,
   Parcel,
   PlanInfo,
   PlanItem,
@@ -20,6 +21,7 @@ import type {
 /** Everything the rules look at. Each part is optional so flags work with whatever sources answered. */
 export interface FlagInput {
   trades?: Trade[];
+  owners?: Owner[];
   terrain?: TerrainInfo;
   footprints?: Footprint[];
   buildings?: Building[];
@@ -58,6 +60,7 @@ export function flagInputFrom(results: {
   environment?: SourceResult<EnvironmentInfo>;
   heritage?: SourceResult<HeritageInfo>;
   trades?: SourceResult<Trade[]>;
+  owners?: SourceResult<Owner[]>;
   terrain?: SourceResult<TerrainInfo>;
   footprints?: SourceResult<Footprint[]>;
   ids?: { mainBfe?: string };
@@ -77,6 +80,7 @@ export function flagInputFrom(results: {
     environment: data(results.environment),
     heritage: data(results.heritage),
     trades: data(results.trades),
+    owners: data(results.owners),
     terrain: data(results.terrain),
     footprints: data(results.footprints),
   };
@@ -616,6 +620,33 @@ export function buildFlags(input: FlagInput): Flag[] {
       title: `Seneste handel ${sale.date ?? ""}`.trim(),
       detail: `Samlet købesum ${kr(sale.price)}${area ? ` (${kr(sale.price / area)} pr. m² bolig)` : ""}${sale.transferType ? `, ${sale.transferType}` : ""}. ${sale.attribution ?? ""}`.trim(),
       sources: ["ejf"],
+    });
+  }
+
+  // Owners. Only companies are named; a private owner is never identified.
+  const companyOwners = (input.owners ?? []).filter((owner) => owner.kind === "company");
+  const companyLabel = (owner: Owner) =>
+    `${owner.company?.name ?? "Selskab"} (CVR ${owner.cvr}${owner.company?.form ? `, ${owner.company.form}` : ""})${
+      owner.share !== undefined && owner.share < 1 ? `, ${Math.round(owner.share * 1000) / 10} %` : ""
+    }`;
+  // CVR says "aktiv" for a running company; anything else (under konkurs, opløst, ophørt) is worth a look.
+  const inactive = companyOwners.filter((owner) => owner.company?.status && !/^(aktiv|normal)$/i.test(owner.company.status));
+  if (inactive.length > 0) {
+    add({
+      id: "owner_company_inactive",
+      severity: "high",
+      title: "Ejerselskabet er ikke aktivt",
+      detail: `${inactive.map((owner) => `${companyLabel(owner)} har status "${owner.company!.status}" i CVR`).join("; ")}. Et selskab under konkurs eller opløsning kan ikke nødvendigvis sælge uden en kurator eller likvidator.`,
+      sources: ["ejf", "cvr"],
+    });
+  }
+  if (companyOwners.length > 0) {
+    add({
+      id: "owner_company",
+      severity: "info",
+      title: companyOwners.length === 1 ? "Ejes af et selskab" : "Ejes af selskaber",
+      detail: `${companyOwners.map(companyLabel).join("; ")}.`,
+      sources: companyOwners.some((owner) => owner.company) ? ["ejf", "cvr"] : ["ejf"],
     });
   }
 

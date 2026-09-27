@@ -3,6 +3,15 @@
 ## Unreleased
 
 ### New
+- `get_company`: public CVR data for a CVR number (name, status, form, address, industry, head count, reklamebeskyttelse, fully liable participants of an I/S or K/S). Same Datafordeleren API key; people in CVR are counted, never named.
+- `get_owners`: current owners from EJF's `CustomEjerskabBegraenset`, the ownership service private actors may be granted. A company owner comes with its CVR data; a private owner is only "privatperson" and a share, with no name or CPR number. Needs that entity approved on top of the EJF access for sale prices.
+- `property_report` lists owners in `summary.owners` and flags a company owner that is not active in CVR (`owner_company_inactive`), plus `owner_company` for company-owned property.
+
+## 0.2.0 (2026-09-27)
+
+First release on npm: `npx -y boligmcp`.
+
+### New
 - Live regression suite: `pnpm live` runs the cases in `tests/live/cases/` through the real server against the live registers, also as built (`--dist`); `pnpm live:sample` checks reports for random addresses (see docs/test-plan.md).
 - `get_property_location`: EBR beliggenhed for a BFE. A street address when one exists, otherwise the text designation used for a property with no address. Same Datafordeleren API key as BBR.
 - `get_aerial_photo`: GeoDanmark spring orthophoto plus a cropped skråfoto facade. The crop uses Klimadatastyrelsen's published camera formula and the public COG. The token is sent as a header and never put in an image URL.

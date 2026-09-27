@@ -16,7 +16,9 @@ import { getEnvironmentAt } from "./sources/miljoportal.js";
 import { getPlansAt, getSiteConditionsAt } from "./sources/plandata.js";
 import { getTerrainAt } from "./sources/datafordeler/dhm.js";
 import { getAerialPhoto } from "./sources/dataforsyningen.js";
+import { getCompany } from "./sources/datafordeler/cvr.js";
 import { getPropertyLocation } from "./sources/datafordeler/ebr.js";
+import { getOwners } from "./sources/datafordeler/owners.js";
 import {
   getAdminAreasAt,
   getBuildingsAndUnits,
@@ -169,6 +171,30 @@ export function createServer(): McpServer {
     "Get recorded ownership changes for a BFE from EJF, newest first: takeover and agreement dates, total and cash price, movables and transfer type. Entries without a price have no recorded price: usually transfers such as inheritance, sometimes a second record of a sale on the same date; transferType tells them apart. Needs the user's own approved EJF OAuth access. Never returns buyers, sellers or owner names.",
     { bfe: bfeInput },
     async ({ bfe }) => asText(await getTrades(bfe)),
+  );
+
+  tool(
+    "get_owners",
+    "Get the current owners of a property from EJF: for each owner the kind (company, private person, other), ownership type and share. A company owner comes with its CVR data (name, form, status, address, industry). A private person is only reported as such: no name and no CPR number, ever. Needs the user's own EJF OAuth access approved for CustomEjerskabBegraenset, which is a separate approval from sale prices.",
+    addressInput,
+    async ({ bfe, ...input }) => {
+      if (bfe && !input.query?.trim() && !input.addressId?.trim()) return asText(await getOwners(bfe));
+      const resolved = await resolveTarget({ ...input, bfe });
+      if (resolved.status !== "ok") return asText(resolved);
+      if (!resolved.data.bfe) return asText(unavailable("ejf", "not_found", "The address has no BFE, so no owners are recorded."));
+      return asText(forAddress(await getOwners(resolved.data.bfe), resolved.data));
+    },
+  );
+
+  tool(
+    "get_company",
+    "Get public CVR data for a Danish company by its 8-digit CVR number: name, status, company form, start and end date, registered address, industry, head count when CVR has a recent one, and whether it is reklamebeskyttet. For an I/S or K/S, fully liable participants that are companies are listed; people are only counted. Owners and management of a company are not in this source.",
+    {
+      cvr: z
+        .preprocess((value) => (typeof value === "number" && Number.isInteger(value) ? String(value).padStart(8, "0") : value), z.string().trim())
+        .describe("CVR number, 8 digits, e.g. 24256790"),
+    },
+    async ({ cvr }) => asText(await getCompany(cvr)),
   );
 
   tool(
