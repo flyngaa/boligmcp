@@ -4,6 +4,7 @@ import { bbrLabel } from "../../lib/bbr-codes.js";
 import { ok, unavailable, type Company, type Owner, type SourceResult } from "../../types.js";
 import { queryNodes } from "./client.js";
 import { getCompany } from "./cvr.js";
+import { EJF_ATTRIBUTION } from "./registers.js";
 
 /** Private individuals (ejerforholdskode 10) and interessentskaber. */
 const PRIVATE_CODE = "10";
@@ -31,6 +32,7 @@ export function mapOwner(row: Record<string, unknown>): Owner {
     share: numerator > 0 && denominator > 0 ? numerator / denominator : undefined,
     since: str(row.virkningFra)?.slice(0, 10),
     cvr,
+    attribution: EJF_ATTRIBUTION,
   };
 }
 

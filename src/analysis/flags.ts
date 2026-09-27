@@ -636,7 +636,7 @@ export function buildFlags(input: FlagInput): Flag[] {
       id: "owner_company_inactive",
       severity: "high",
       title: "Ejerselskabet er ikke aktivt",
-      detail: `${inactive.map((owner) => `${companyLabel(owner)} har status "${owner.company!.status}" i CVR`).join("; ")}. Et selskab under konkurs eller opløsning kan ikke nødvendigvis sælge uden en kurator eller likvidator.`,
+      detail: `${inactive.map((owner) => `${companyLabel(owner)} har status "${owner.company!.status}" i CVR`).join("; ")}. Et selskab under konkurs eller opløsning kan ikke nødvendigvis sælge uden en kurator eller likvidator. Kilde: Ejerfortegnelsen, Geodatastyrelsen (CC BY 4.0); Det Centrale Virksomhedsregister (CVR), Erhvervsstyrelsen.`,
       sources: ["ejf", "cvr"],
     });
   }
@@ -645,7 +645,10 @@ export function buildFlags(input: FlagInput): Flag[] {
       id: "owner_company",
       severity: "info",
       title: companyOwners.length === 1 ? "Ejes af et selskab" : "Ejes af selskaber",
-      detail: `${companyOwners.map(companyLabel).join("; ")}.`,
+      // Both licences (CC BY 4.0) require crediting the register wherever its data is shown.
+      detail: `${companyOwners.map(companyLabel).join("; ")}. Kilde: Ejerfortegnelsen, Geodatastyrelsen (CC BY 4.0)${
+        companyOwners.some((owner) => owner.company) ? "; Det Centrale Virksomhedsregister (CVR), Erhvervsstyrelsen" : ""
+      }.`,
       sources: companyOwners.some((owner) => owner.company) ? ["ejf", "cvr"] : ["ejf"],
     });
   }

@@ -2,7 +2,7 @@ import { getConfig } from "../../config.js";
 import { ok, unavailable, type Company, type SourceResult } from "../../types.js";
 import { datafordelerUnavailable, queryNodes } from "./client.js";
 
-const CVR_ATTRIBUTION = "Kilde: Det Centrale Virksomhedsregister (CVR), Erhvervsstyrelsen";
+export const CVR_ATTRIBUTION = "Kilde: Det Centrale Virksomhedsregister (CVR), Erhvervsstyrelsen";
 
 // CVR answers only with virkningstid, one root field per query, and needs a filter on the entity's id.
 const current = { temporal: "virkning" as const };

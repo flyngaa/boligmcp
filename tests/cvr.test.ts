@@ -176,7 +176,7 @@ describe("get_owners", () => {
     if (result.status !== "ok") return;
     expect(result.data).toEqual([
       expect.objectContaining({ kind: "company", cvr: "24256790", share: 0.5, since: "2021-04-01", company: expect.objectContaining({ name: "NOVO NORDISK A/S", form: "Aktieselskab" }) }),
-      { kind: "private_person", ownershipCode: "10", ownershipType: "Privatpersoner eller interessentskab", share: 0.5, since: "2021-04-01", cvr: undefined },
+      { kind: "private_person", ownershipCode: "10", ownershipType: "Privatpersoner eller interessentskab", share: 0.5, since: "2021-04-01", cvr: undefined, attribution: "Kilde: Ejerfortegnelsen, Geodatastyrelsen (CC BY 4.0)" },
     ]);
     for (const query of queries) {
       expect(query).not.toMatch(/PersonNr|PersonBegraenset|Ejeroplys|PersonVirksomhed|oplysninger|administr|CVRPerson/i);
@@ -185,7 +185,12 @@ describe("get_owners", () => {
     expect(ownerSummary(result)).toEqual(["NOVO NORDISK A/S, CVR 24256790 (50 %)", "Privatperson (50 %)"]);
     const flags = buildFlags({ owners: result.data });
     expect(flags.find((flag) => flag.id === "owner_company_inactive")).toMatchObject({ severity: "high", detail: expect.stringContaining('status "under konkurs"') });
-    expect(flags.find((flag) => flag.id === "owner_company")?.detail).toBe("NOVO NORDISK A/S (CVR 24256790, Aktieselskab), 50 %.");
+    expect(flags.find((flag) => flag.id === "owner_company")?.detail).toBe(
+      "NOVO NORDISK A/S (CVR 24256790, Aktieselskab), 50 %. Kilde: Ejerfortegnelsen, Geodatastyrelsen (CC BY 4.0); Det Centrale Virksomhedsregister (CVR), Erhvervsstyrelsen.",
+    );
+    // CC BY 4.0: both registers are credited wherever their data is shown.
+    expect(result.data.every((owner) => owner.attribution?.includes("Ejerfortegnelsen"))).toBe(true);
+    expect(result.data[0]?.company?.attribution).toMatch(/Det Centrale Virksomhedsregister/);
     expect(JSON.stringify(flags)).not.toMatch(/Privatperson/);
   });
 

@@ -305,6 +305,8 @@ export const OwnerSchema = z.object({
   since: z.string().optional(),
   cvr: z.string().optional(),
   company: CompanySchema.optional(),
+  /** CC BY 4.0 requires crediting Ejerfortegnelsen wherever owner data is shown. */
+  attribution: z.string().optional(),
 });
 export type Owner = z.infer<typeof OwnerSchema>;
 
