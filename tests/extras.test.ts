@@ -63,7 +63,7 @@ describe("GeoDanmark outlines", () => {
     expect(ringArea("0 0 5 10 0 5 10 8 5 0 8 5 0 0 5", 3)).toBe(80);
     const gml = `<wfs:member><gdk60:Bygning gml:id="a"><gdk60:BBRUUID>b1</gdk60:BBRUUID><gdk60:maalestedBygning>Tag</gdk60:maalestedBygning>
       <gml:Polygon srsDimension="3"><gml:exterior><gml:LinearRing><gml:posList srsDimension="3">0 0 1 12 0 1 12 8 1 0 8 1 0 0 1</gml:posList></gml:LinearRing></gml:exterior></gml:Polygon></gdk60:Bygning></wfs:member>`;
-    expect(parseOutlines(gml)).toEqual([{ bbrId: "b1", measuredAt: "Tag", area: 96 }]);
+    expect(parseOutlines(gml)).toEqual([{ bbrId: "b1", measuredAt: "Tag", area: 96, ring: [[0, 0], [12, 0], [12, 8], [0, 8], [0, 0]] }]);
   });
   it("flags only differences roof overhang cannot explain", () => {
     const buildings = [{ buildingId: "h", usage: "Fritliggende enfamiliehus" }, { buildingId: "c", usage: "Carport" }];

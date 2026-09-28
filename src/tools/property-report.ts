@@ -11,6 +11,7 @@ import { getHeritageAt } from "../sources/fbb.js";
 import { getEnvironmentAt } from "../sources/miljoportal.js";
 import { getPlansAt, getSiteConditionsAt } from "../sources/plandata.js";
 import { getTerrainAt } from "../sources/datafordeler/dhm.js";
+import { nearestBuildingId, viewForPoint, type MapView } from "../sources/google-maps.js";
 import {
   getAdminAreasAt,
   getBuildingsAndUnits,
@@ -160,6 +161,7 @@ export interface PropertyData {
   parish?: SourceResult<AreaStats>;
   market?: SourceResult<AreaStats>;
   heritage?: SourceResult<HeritageInfo>;
+  map?: SourceResult<MapView>;
 }
 
 /** Statistics are context, not core data: after this long the report goes out without them. */
@@ -376,6 +378,7 @@ export function missingSources(data: PropertyData): Array<{ source: string; reas
     data.parish,
     data.market,
     data.heritage,
+    data.map,
   ]) {
     collect(result);
   }
@@ -406,12 +409,22 @@ export function missingSources(data: PropertyData): Array<{ source: string; reas
   return missing;
 }
 
+/** The 3D view for this property. Screening does not call this: one report, one local page. */
+async function mapFor(data: PropertyData): Promise<SourceResult<MapView> | undefined> {
+  if (data.idsResult.status !== "ok") return undefined;
+  const point = lookupPointFor(data.ids, data.buildings);
+  if (!point) return unavailable("google_maps", "not_found", "Could not get coordinates for address");
+  const buildings = data.buildings?.status === "ok" ? data.buildings.data.buildings : [];
+  return viewForPoint(data.ids?.designation ?? "Ejendom", point.x, point.y, nearestBuildingId(point, buildings));
+}
+
 export async function buildPropertyReport(input: {
   query?: string;
   addressId?: string;
   bfe?: string;
 }): Promise<unknown> {
   const data = await collectPropertyData(input);
+  data.map = await mapFor(data);
   const summary = summarize(data);
   const flags = buildFlags(flagInputFrom(data));
   const missing = missingSources(data);
@@ -438,6 +451,7 @@ export async function buildPropertyReport(input: {
     parishStats: data.parish,
     market: data.market,
     heritage: data.heritage,
+    map: data.map,
     missing,
   };
 
@@ -446,6 +460,7 @@ export async function buildPropertyReport(input: {
       summary,
       flags,
       ids: data.idsResult.status === "ok" ? { status: "ok", data: data.ids } : data.idsResult,
+      map: data.map,
       missing,
       note: `Report truncated to stay under ~${TOKEN_BUDGET.toLocaleString("en")} tokens. Call individual tools for full fields.`,
     };

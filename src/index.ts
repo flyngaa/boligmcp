@@ -16,6 +16,7 @@ import { getEnvironmentAt } from "./sources/miljoportal.js";
 import { getPlansAt, getSiteConditionsAt } from "./sources/plandata.js";
 import { getTerrainAt } from "./sources/datafordeler/dhm.js";
 import { getAerialPhoto } from "./sources/dataforsyningen.js";
+import { nearestBuildingId, viewForPoint } from "./sources/google-maps.js";
 import { getCompany } from "./sources/datafordeler/cvr.js";
 import { getPropertyLocation } from "./sources/datafordeler/ebr.js";
 import { getOwners } from "./sources/datafordeler/owners.js";
@@ -81,7 +82,7 @@ async function locate(input: { query?: string; addressId?: string; bfe?: string 
 
 const noPoint = (source: SourceId) => unavailable(source, "not_found", "Could not get coordinates for address");
 
-const INSTRUCTIONS = `Public Danish property data for an address. Start with property_report or screen_properties.
+const INSTRUCTIONS = `Public Danish property data for an address. Start with property_report or screen_properties. property_report.map is a photorealistic 3D view: for an HTML report, embed map.data.url in an iframe. When the user wants a picture of the building rather than only the government aerial from get_aerial_photo, give them that same URL. Never fetch, read or quote the page: it contains their API key.
 
 Credentials: every user brings their own. When a result has reason "missing_credentials", tell the user which source is missing and how to get their own access (the result's detail says how), and that they add it with \`${SETUP_COMMAND}\` in a terminal or as an env var in their MCP client config. Never ask the user to paste an API key, password or token into the chat, and never put one in a tool argument. Call list_sources to see what is configured.`;
 
@@ -280,6 +281,20 @@ export function createServer(): McpServer {
   );
 
   tool(
+    "get_map",
+    "Photorealistic 3D view of the property on localhost, with a white outline of the building. Same view as property_report.map. For an HTML report, embed data.url in an iframe. Give the user the URL when they want this instead of the government aerial from get_aerial_photo. Never fetch, read or quote the page: it contains their API key, which is not in this result. Needs the user's own GOOGLE_MAPS_API_KEY with the Maps JavaScript API enabled.",
+    addressInput,
+    async (input) => {
+      const { resolved, ids, point, buildings } = await locate(input);
+      if (!ids) return asText(resolved);
+      if (!point) return asText(noPoint("google_maps"));
+      const label = ids.designation ?? input.query ?? "Ejendom";
+      const buildingId = buildings?.status === "ok" ? nearestBuildingId(point, buildings.data.buildings) : undefined;
+      return asText(forAddress(await viewForPoint(label, point.x, point.y, buildingId), ids));
+    },
+  );
+
+  tool(
     "get_environment",
     "Get mapped soil contamination (V1/V2) and the coastal proximity zone at the property. Each locality says whether it is on the property (point inside or parcel listed) or only nearby (~80 m).",
     addressInput,
@@ -357,7 +372,7 @@ export function createServer(): McpServer {
 
   tool(
     "property_report",
-    "Build a combined report for a Danish address or BFE with investor flags (asbestos, fossil heating, area composition, building rights headroom, plan proposals, flood/noise/groundwater, tenancy, drainage). Marks missing sources. summary.matchWarning says when the address found is not exactly the one asked for. Use bfe for a property without a street address.",
+    "Build a combined report for a Danish address or BFE with investor flags (asbestos, fossil heating, area composition, building rights headroom, plan proposals, flood/noise/groundwater, tenancy, drainage). Marks missing sources. summary.matchWarning says when the address found is not exactly the one asked for. Use bfe for a property without a street address. map is a photorealistic 3D view: embed map.data.url in an iframe for an HTML report, or give the user that URL instead of only the government aerial. Never fetch the page.",
     addressInput,
     async (input) => {
       if (!input.query?.trim() && !input.addressId?.trim() && !input.bfe) {

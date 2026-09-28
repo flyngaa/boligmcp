@@ -77,12 +77,13 @@ When a key is missing, the tools say which source is affected and how to get acc
 | `get_terrain` | Terrain height (DVR90), highest surface nearby, and whether the plot lies in a hollow |
 | `get_property_location` | EBR location for a BFE: street address, or a text designation when there is no address |
 | `get_aerial_photo` | Spring orthophoto and a cropped skråfoto facade (needs a Dataforsyningen token) |
+| `get_map` | Photorealistic 3D view of the property, also included as `property_report.map`. Embed the localhost URL in an HTML report; do not fetch the page |
 | `get_nearby_services` | Distance to nearest school, daycare, shop, doctor and sports hall (BBR) |
 | `get_local_statistics` | Parish statistics and regional price index / average sale price |
 | `watch_property` / `check_watchlist` / `list_watchlist` / `unwatch_property` | Watch properties and report what changed since the last check |
 | `get_energy_label` | Energimærke (needs EMOData) |
 | `get_area_stats` | Municipality statistics from DST |
-| `property_report` | Combined report with investor flags (~4–8k tokens) |
+| `property_report` | Combined report with investor flags (~4–8k tokens), including `map` for the 3D view |
 | `screen_properties` | Up to 25 addresses side by side |
 | `list_sources` | Which sources are configured |
 
@@ -114,6 +115,7 @@ See [docs/credentials.md](docs/credentials.md) for how to get each key.
 | `ADRESSEVAELGER_TOKEN` | Optional; defaults to `adressevaelger123` |
 | `EMODATA_USER` / `EMODATA_PASSWORD` | Energy labels |
 | `DATAFORSYNINGEN_TOKEN` | `get_aerial_photo` |
+| `GOOGLE_MAPS_API_KEY` | `get_map` and `property_report.map` (Maps JavaScript API; allow `http://127.0.0.1:47321/*` if the key is website-restricted) |
 | `CACHE_PATH` | SQLite cache file (default `~/.cache/boligmcp/cache.db`) |
 | `BOLIGMCP_CREDENTIALS_FILE` | Override the credentials file path |
 | `BOLIGMCP_ENV_FILE` | Development only: load this `.env` file |

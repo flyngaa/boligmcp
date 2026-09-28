@@ -183,6 +183,19 @@ export const SOURCES: SourceDefinition[] = [
     docsUrl: "https://dataforsyningen.dk/",
     notes: "Used by get_aerial_photo: spring orthophoto and a cropped skråfoto facade.",
   },
+  {
+    id: "google_maps",
+    name: "Google Maps 3D",
+    tier: "T1",
+    envKeys: ["googleMapsApiKey"],
+    setup:
+      "Create your own key in Google Cloud Console with the Maps JavaScript API enabled (https://console.cloud.google.com/google/maps-apis), then run `" +
+      SETUP_COMMAND +
+      "` or set GOOGLE_MAPS_API_KEY. If the key is restricted by website, allow http://127.0.0.1:47321/*. The key is only used to open a local 3D map and is never returned by a tool.",
+    ttlSeconds: 0,
+    docsUrl: "https://developers.google.com/maps/documentation/javascript/3d/overview",
+    notes: "Photorealistic 3D map in the browser. Preview of Maps JavaScript API; billed when Google makes it generally available.",
+  },
 ];
 
 const ENV_LABEL: Record<Exclude<keyof AppConfig, "credentialSources">, string> = {
@@ -193,6 +206,7 @@ const ENV_LABEL: Record<Exclude<keyof AppConfig, "credentialSources">, string> =
   dataforsyningenToken: "DATAFORSYNINGEN_TOKEN",
   emodataUser: "EMODATA_USER",
   emodataPassword: "EMODATA_PASSWORD",
+  googleMapsApiKey: "GOOGLE_MAPS_API_KEY",
   cachePath: "CACHE_PATH",
 };
 

@@ -11,13 +11,21 @@ interface Outline {
   bbrId?: string;
   measuredAt?: string;
   area: number;
+  /** Exterior ring in EPSG:25832, metres. The closing point is kept when the source repeats it. */
+  ring: Array<[number, number]>;
+}
+
+/** Easting/northing pairs from a GML posList. A 3D list stores height as every third number, which is dropped. */
+export function ringPoints(posList: string, dimension: number): Array<[number, number]> {
+  const numbers = posList.trim().split(/\s+/).map(Number);
+  const points: Array<[number, number]> = [];
+  for (let i = 0; i + 1 < numbers.length; i += dimension) points.push([numbers[i]!, numbers[i + 1]!]);
+  return points;
 }
 
 /** Shoelace area of the first ring in a GML posList with 2D or 3D coordinates. */
 export function ringArea(posList: string, dimension: number): number {
-  const numbers = posList.trim().split(/\s+/).map(Number);
-  const points: Array<[number, number]> = [];
-  for (let i = 0; i + 1 < numbers.length; i += dimension) points.push([numbers[i]!, numbers[i + 1]!]);
+  const points = ringPoints(posList, dimension);
   let sum = 0;
   for (let i = 0; i < points.length; i += 1) {
     const [x1, y1] = points[i]!;
@@ -25,6 +33,17 @@ export function ringArea(posList: string, dimension: number): number {
     sum += x1 * y2 - x2 * y1;
   }
   return Math.abs(sum) / 2;
+}
+
+/** Even-odd test. The ring may repeat its first point at the end. */
+export function pointInRing(x: number, y: number, ring: Array<[number, number]>): boolean {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i, i += 1) {
+    const [xi, yi] = ring[i]!;
+    const [xj, yj] = ring[j]!;
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
 }
 
 /** Pulls each Bygning's BBR id and outline area out of the GML3 response. */
@@ -35,10 +54,12 @@ export function parseOutlines(gml: string): Outline[] {
     const exterior = feature.match(/<gml:exterior>[\s\S]*?<gml:posList[^>]*?(?:srsDimension="(\d)")?[^>]*>([^<]+)<\/gml:posList>/);
     if (!exterior) continue;
     const dimension = Number(exterior[1] ?? feature.match(/srsDimension="(\d)"/)?.[1] ?? 2);
+    const ring = ringPoints(exterior[2]!, dimension);
     outlines.push({
       bbrId: feature.match(/<gdk60:BBRUUID>([^<]+)</)?.[1]?.trim(),
       measuredAt: feature.match(/<gdk60:maalestedBygning>([^<]+)</)?.[1]?.trim(),
       area: ringArea(exterior[2]!, dimension),
+      ring,
     });
   }
   return outlines;
@@ -55,9 +76,20 @@ async function outlinesNear(x: number, y: number): Promise<Outline[]> {
     bbox: `${x - 25},${y - 25},${x + 25},${y + 25},EPSG:25832`,
     apikey: getConfig().datafordelerApiKey!,
   });
-  return cached(`gdk:bygning:${x.toFixed(1)}:${y.toFixed(1)}`, ttlFor("geodanmark"), async () =>
+  return cached(`gdk:bygning:ring:${x.toFixed(1)}:${y.toFixed(1)}`, ttlFor("geodanmark"), async () =>
     parseOutlines(await fetchText(`${WFS}?${params.toString()}`, { accept: "application/gml+xml" })),
   );
+}
+
+/**
+ * The measured outline that contains the point, preferring a BBR id match when several do.
+ * Used to draw the building on the 3D map. Returns undefined when none contain the point.
+ */
+export async function outlineContaining(x: number, y: number, buildingId?: string): Promise<Array<[number, number]> | undefined> {
+  if (!getConfig().datafordelerApiKey) return undefined;
+  const outlines = (await outlinesNear(x, y)).filter((outline) => pointInRing(x, y, outline.ring));
+  const match = outlines.find((outline) => buildingId && outline.bbrId === buildingId) ?? outlines.sort((a, b) => a.area - b.area)[0];
+  return match && match.ring.length >= 4 ? match.ring : undefined;
 }
 
 /**

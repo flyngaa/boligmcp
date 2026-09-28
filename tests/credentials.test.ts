@@ -8,7 +8,7 @@ import { mask, readStoredCredentials, writeStoredCredentials } from "../src/cred
 import { getValuation } from "../src/sources/datafordeler/registers.js";
 import { checkDatafordelerKey } from "../src/setup.js";
 
-const KEYS = ["DATAFORDELER_API_KEY", "EMODATA_USER", "EMODATA_PASSWORD", "DATAFORSYNINGEN_TOKEN", "ADRESSEVAELGER_TOKEN"];
+const KEYS = ["DATAFORDELER_API_KEY", "EMODATA_USER", "EMODATA_PASSWORD", "DATAFORSYNINGEN_TOKEN", "ADRESSEVAELGER_TOKEN", "GOOGLE_MAPS_API_KEY"];
 let saved: Record<string, string | undefined>;
 let file: string;
 

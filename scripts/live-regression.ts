@@ -50,6 +50,7 @@ const CREDENTIAL_ENV = [
   "DATAFORSYNINGEN_TOKEN",
   "EMODATA_USER",
   "EMODATA_PASSWORD",
+  "GOOGLE_MAPS_API_KEY",
 ];
 
 function parseArgs(argv: string[]) {

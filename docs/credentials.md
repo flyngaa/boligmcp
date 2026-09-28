@@ -34,7 +34,11 @@ Subscribe to the [KDS notification service](https://confluence.kds.dk/pages/view
 
 Required for `get_energy_label`. Register with Energistyrelsen EMOData (typically a business or research agreement). Until then the tool returns `unavailable / missing_credentials`.
 
-### 4. `DATAFORSYNINGEN_TOKEN` — T1, optional
+### 4. `GOOGLE_MAPS_API_KEY` — T1, optional
+
+Required for `get_map` and `property_report.map`, a photorealistic 3D view served on `http://127.0.0.1:47321`. Create a key in [Google Cloud Console](https://console.cloud.google.com/google/maps-apis) with the **Maps JavaScript API** enabled. If you restrict the key to websites, allow `http://127.0.0.1:47321/*`. The tool returns only the localhost URL. The page holds the key, so it is never fetched back into the chat.
+
+### 5. `DATAFORSYNINGEN_TOKEN` — T1, optional
 
 Create a user at [dataforsyningen.dk](https://dataforsyningen.dk) and mint a token. Required for `get_aerial_photo`. The token is sent as a header and is never returned in the image URL.
 

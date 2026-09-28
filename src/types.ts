@@ -18,6 +18,7 @@ export const SourceIdSchema = z.enum([
   "dataforsyningen",
   "fbb",
   "cvr",
+  "google_maps",
 ]);
 export type SourceId = z.infer<typeof SourceIdSchema>;
 
