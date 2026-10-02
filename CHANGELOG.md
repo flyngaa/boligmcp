@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Privacy
+- Every Datafordeleren query is checked before it is sent: one that mentions CVR's people, `EJF_Ejerskab`, owner names or details, or a CPR field is refused (`PRIVACY_BLOCKED`).
+- The server instructions tell the agent that Bolig-MCP never returns data about private people, and never to try to identify a private owner by other means.
+- `AGENTS.md` sets the same rules for contributors and their coding agents, and the README has a Privacy section.
+
 ### New
 - `get_map`: a photorealistic 3D view of the property in the browser (Maps JavaScript API, preview), with a white outline of the building and a slow orbit. The user's own `GOOGLE_MAPS_API_KEY` stays in the local page; the tool returns only a localhost URL. `property_report` includes the same view as `map`, so an HTML report can embed it instead of using only the government aerial.
 - `get_company`: public CVR data for a CVR number (name, status, form, address, industry, head count, reklamebeskyttelse, fully liable participants of an I/S or K/S). Same Datafordeleren API key; people in CVR are counted, never named.

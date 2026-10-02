@@ -94,6 +94,25 @@ export function extractNodes<T extends Record<string, unknown>>(
   return [];
 }
 
+/**
+ * Entities and fields that identify private people: CPR numbers, names and person objects. Bolig-MCP never asks for
+ * them, so a query that mentions one is refused here, before anything is sent. A test guards every pattern.
+ */
+const PERSON_DATA = [
+  /\bCVRPerson\b/, // CVR's people, confidential
+  /\bEJF_Ejerskab\b/, // owners with CPR numbers, for public authorities only
+  /PersonVirksomhedsoplys/i, // owner names and addresses
+  /ejendePerson/i, // the person object of an ownership
+  /Ejeroplys/i, // owner details
+  /\bcpr/i,
+  /personn(umme)?r/i,
+];
+
+export function assertNoPersonData(query: string): void {
+  const hit = PERSON_DATA.find((pattern) => pattern.test(query));
+  if (hit) throw new Error(`PRIVACY_BLOCKED: Bolig-MCP never queries data about private people (${hit.source}).`);
+}
+
 export async function graphql<T>(
   register: DatafordelerRegister,
   query: string,
@@ -102,6 +121,7 @@ export async function graphql<T>(
   ttlSeconds = 86_400,
   auth: DatafordelerAuth = "apiKey",
 ): Promise<T> {
+  assertNoPersonData(query);
   const path = REGISTER_PATH[register];
   let url = `https://graphql.datafordeler.dk/${path}`;
   if (auth === "apiKey") {
