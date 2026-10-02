@@ -14,6 +14,7 @@ export const CREDENTIAL_KEYS = [
   "EMODATA_PASSWORD",
   "DATAFORSYNINGEN_TOKEN",
   "ADRESSEVAELGER_TOKEN",
+  "GOOGLE_MAPS_API_KEY",
 ] as const;
 export type CredentialKey = (typeof CREDENTIAL_KEYS)[number];
 

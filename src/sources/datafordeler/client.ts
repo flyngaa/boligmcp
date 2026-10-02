@@ -12,6 +12,9 @@ const REGISTER_PATH: Record<string, string> = {
   EJF: "EJF/v1",
   VUR: "VUR/v2",
   EBR: "EBR/v1",
+  CVR: "CVR/v2",
+  // Combined services across registers, e.g. EJFCustom_EjerskabBegraenset (owners without CPR numbers).
+  FLEX: "flexibleCurrent/v1",
 };
 
 export type DatafordelerRegister = keyof typeof REGISTER_PATH;
@@ -91,6 +94,25 @@ export function extractNodes<T extends Record<string, unknown>>(
   return [];
 }
 
+/**
+ * Entities and fields that identify private people: CPR numbers, names and person objects. Bolig-MCP never asks for
+ * them, so a query that mentions one is refused here, before anything is sent. A test guards every pattern.
+ */
+const PERSON_DATA = [
+  /\bCVRPerson\b/, // CVR's people, confidential
+  /\bEJF_Ejerskab\b/, // owners with CPR numbers, for public authorities only
+  /PersonVirksomhedsoplys/i, // owner names and addresses
+  /ejendePerson/i, // the person object of an ownership
+  /Ejeroplys/i, // owner details
+  /\bcpr/i,
+  /personn(umme)?r/i,
+];
+
+export function assertNoPersonData(query: string): void {
+  const hit = PERSON_DATA.find((pattern) => pattern.test(query));
+  if (hit) throw new Error(`PRIVACY_BLOCKED: Bolig-MCP never queries data about private people (${hit.source}).`);
+}
+
 export async function graphql<T>(
   register: DatafordelerRegister,
   query: string,
@@ -99,6 +121,7 @@ export async function graphql<T>(
   ttlSeconds = 86_400,
   auth: DatafordelerAuth = "apiKey",
 ): Promise<T> {
+  assertNoPersonData(query);
   const path = REGISTER_PATH[register];
   let url = `https://graphql.datafordeler.dk/${path}`;
   if (auth === "apiKey") {
@@ -171,13 +194,16 @@ export async function queryNodes(
   fields: string,
   where: Record<string, unknown>,
   first = 20,
-  options: { temporal?: boolean; auth?: DatafordelerAuth } = {},
+  /** `"virkning"`: only virkningstid, for registers such as CVR that reject registreringstid. */
+  options: { temporal?: boolean | "virkning"; auth?: DatafordelerAuth } = {},
 ): Promise<Array<Record<string, unknown>>> {
   const whereLiteral = graphqlLiteral(where);
   const temporal =
     options.temporal === false
       ? ""
-      : `virkningstid: "${nowIso()}"\n        registreringstid: "${nowIso()}"`;
+      : options.temporal === "virkning"
+        ? `virkningstid: "${nowIso()}"`
+        : `virkningstid: "${nowIso()}"\n        registreringstid: "${nowIso()}"`;
   const query = `
     query {
       ${entity}(
@@ -190,7 +216,7 @@ export async function queryNodes(
     }
   `;
   // Fields, page size and temporality change the answer, so they belong in the key.
-  const cacheKey = `daf:${register}:${entity}:${JSON.stringify(where)}:${first}:${options.temporal === false ? "nt" : "t"}:${fields}`;
+  const cacheKey = `daf:${register}:${entity}:${JSON.stringify(where)}:${first}:${options.temporal === false ? "nt" : options.temporal === "virkning" ? "v" : "t"}:${fields}`;
   const data = await graphql<Record<string, unknown>>(register, query, {}, cacheKey, 86_400, options.auth);
   return extractNodes(data, entity);
 }

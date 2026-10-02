@@ -858,7 +858,7 @@ export function realDate(value: unknown): string | undefined {
   return date && date !== "1969-12-31" && date !== "1970-01-01" ? date : undefined;
 }
 
-const EJF_ATTRIBUTION = "Kilde: Ejerfortegnelsen, Geodatastyrelsen (CC BY 4.0)";
+export const EJF_ATTRIBUTION = "Kilde: Ejerfortegnelsen, Geodatastyrelsen (CC BY 4.0)";
 
 /**
  * Sale prices and dates from EJF. Only EJF_Ejerskifte and EJF_Handelsoplysninger are queried:

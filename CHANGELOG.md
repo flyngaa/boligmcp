@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Privacy
+- Every Datafordeleren query is checked before it is sent: one that mentions CVR's people, `EJF_Ejerskab`, owner names or details, or a CPR field is refused (`PRIVACY_BLOCKED`).
+- The server instructions tell the agent that Bolig-MCP never returns data about private people, and never to try to identify a private owner by other means.
+- `AGENTS.md` sets the same rules for contributors and their coding agents, and the README has a Privacy section.
+
+### New
+- `get_map`: a photorealistic 3D view of the property in the browser (Maps JavaScript API, preview), with a white outline of the building and a slow orbit. The user's own `GOOGLE_MAPS_API_KEY` stays in the local page; the tool returns only a localhost URL. `property_report` includes the same view as `map`, so an HTML report can embed it instead of using only the government aerial.
+- `get_company`: public CVR data for a CVR number (name, status, form, address, industry, head count, reklamebeskyttelse, fully liable participants of an I/S or K/S). Same Datafordeleren API key; people in CVR are counted, never named.
+- `get_owners`: current owners from EJF's `CustomEjerskabBegraenset`, the ownership service private actors may be granted. A company owner comes with its CVR data; a private owner is only "privatperson" and a share, with no name or CPR number. Needs that entity approved on top of the EJF access for sale prices.
+- `property_report` lists owners in `summary.owners` and flags a company owner that is not active in CVR (`owner_company_inactive`), plus `owner_company` for company-owned property.
+
+## 0.2.0 (2026-09-27)
+
+First release on npm: `npx -y boligmcp`.
+
 ### New
 - Live regression suite: `pnpm live` runs the cases in `tests/live/cases/` through the real server against the live registers, also as built (`--dist`); `pnpm live:sample` checks reports for random addresses (see docs/test-plan.md).
 - `get_property_location`: EBR beliggenhed for a BFE. A street address when one exists, otherwise the text designation used for a property with no address. Same Datafordeleren API key as BBR.

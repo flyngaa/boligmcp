@@ -16,6 +16,8 @@ export interface AppConfig {
   dataforsyningenToken?: string;
   emodataUser?: string;
   emodataPassword?: string;
+  /** Maps JavaScript API key. Used only to serve a local 3D map; never returned by a tool. */
+  googleMapsApiKey?: string;
   cachePath: string;
   /** Where each credential came from. Values are never included. */
   credentialSources?: Partial<Record<CredentialKey, CredentialSource>>;
@@ -53,6 +55,7 @@ export function loadConfig(): AppConfig {
     dataforsyningenToken: pick("DATAFORSYNINGEN_TOKEN"),
     emodataUser: pick("EMODATA_USER"),
     emodataPassword: pick("EMODATA_PASSWORD"),
+    googleMapsApiKey: pick("GOOGLE_MAPS_API_KEY"),
     cachePath: emptyToUndefined(process.env.CACHE_PATH) ?? defaultCachePath(),
     credentialSources: sources,
   };

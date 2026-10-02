@@ -93,6 +93,12 @@ const FIELDS: Field[] = [
     help: "dataforsyningen.dk → create a user → token. Used by get_aerial_photo.",
     secret: true,
   },
+  {
+    key: "GOOGLE_MAPS_API_KEY",
+    label: "Google Maps API key",
+    help: "Optional. Google Cloud Console → Maps JavaScript API. Used by get_map for a local photorealistic 3D view. If the key is website-restricted, allow http://127.0.0.1:47321/*.",
+    secret: true,
+  },
 ];
 
 function prompt(question: string, secret: boolean): Promise<string> {

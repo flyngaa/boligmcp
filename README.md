@@ -4,7 +4,25 @@ MCP server that takes a Danish address and gathers **public** property data from
 
 It does **not** use DAWA (`dawa.aws.dk` closes 1 October 2026). Address search goes through [Adressevælgeren](https://confluence.kds.dk/pages/viewpage.action?pageId=234782998); register lookups go through [Datafordeleren GraphQL](https://confluence.kds.dk/pages/viewpage.action?pageId=187105434).
 
-Protected owner names of private individuals are never requested.
+Data about private people is never requested. See [Privacy](#privacy).
+
+## Privacy
+
+Bolig-MCP is about properties, not people. It never reads the names, CPR numbers or other details of private people,
+not even to filter them out afterwards:
+
+- **Owners:** a company owner is shown by CVR number and company data. A private owner is only "privatperson" with a
+  share. Owners come from `EJFCustom_EjerskabBegraenset`, the service private actors may be granted, never from
+  `EJF_Ejerskab`, which carries CPR numbers.
+- **CVR:** people in CVR (`CVRPerson`) are confidential. A company's fully liable participants are shown when they are
+  companies; people are only counted.
+- **Sale prices:** dates and prices, never the names of buyers or sellers.
+
+This is enforced in code, not only by convention. Every Datafordeleren query goes through one function that refuses
+person entities and CPR fields before anything is sent (`assertNoPersonData` in
+[`client.ts`](src/sources/datafordeler/client.ts)), and [`tests/privacy.test.ts`](tests/privacy.test.ts) guards it.
+The server also tells the agent never to try to identify a private owner by other means. Contributors and their coding
+agents follow the same rules: see [AGENTS.md](AGENTS.md).
 
 ## Install
 
@@ -67,6 +85,8 @@ When a key is missing, the tools say which source is affected and how to get acc
 | `get_parcel` | Matrikel parcels for a BFE, including fredskov, strandbeskyttelse and klitfredning |
 | `get_valuation` | Official VUR values and history |
 | `get_trades` | Sale prices and dates from EJF (your own approved OAuth access; no names) |
+| `get_owners` | Current owners: a company by CVR with its company data, a private person only as "privatperson" and a share (your own approved EJF access to `CustomEjerskabBegraenset`) |
+| `get_company` | Public CVR data for a CVR number: name, status, form, address, industry, head count. Not a company's owners or management |
 | `get_admin_areas` | Municipality, region, parish, court and police districts |
 | `get_plans` | Local plans, subareas, frameworks with building rights, zone, plan proposals |
 | `get_site_conditions` | Heat supply, sewer, flood/erosion, groundwater, noise, livestock, planned roads/facilities, heritage |
@@ -75,12 +95,13 @@ When a key is missing, the tools say which source is affected and how to get acc
 | `get_terrain` | Terrain height (DVR90), highest surface nearby, and whether the plot lies in a hollow |
 | `get_property_location` | EBR location for a BFE: street address, or a text designation when there is no address |
 | `get_aerial_photo` | Spring orthophoto and a cropped skråfoto facade (needs a Dataforsyningen token) |
+| `get_map` | Photorealistic 3D view of the property, also included as `property_report.map`. Embed the localhost URL in an HTML report; do not fetch the page |
 | `get_nearby_services` | Distance to nearest school, daycare, shop, doctor and sports hall (BBR) |
 | `get_local_statistics` | Parish statistics and regional price index / average sale price |
 | `watch_property` / `check_watchlist` / `list_watchlist` / `unwatch_property` | Watch properties and report what changed since the last check |
 | `get_energy_label` | Energimærke (needs EMOData) |
 | `get_area_stats` | Municipality statistics from DST |
-| `property_report` | Combined report with investor flags (~4–8k tokens) |
+| `property_report` | Combined report with investor flags (~4–8k tokens), including `map` for the 3D view |
 | `screen_properties` | Up to 25 addresses side by side |
 | `list_sources` | Which sources are configured |
 
@@ -108,10 +129,11 @@ See [docs/credentials.md](docs/credentials.md) for how to get each key.
 | Variable | Required for |
 |---|---|
 | `DATAFORDELER_API_KEY` | BFE chain, BBR, VUR, DAGI |
-| `DATAFORDELER_OAUTH_CLIENT_ID` / `_SECRET` | Sale prices from EJF, after Geodatastyrelsen approves your own request. Never owner names |
+| `DATAFORDELER_OAUTH_CLIENT_ID` / `_SECRET` | Sale prices and owners from EJF, after Geodatastyrelsen approves your own request. Company owners by CVR; never names or CPR numbers of private people |
 | `ADRESSEVAELGER_TOKEN` | Optional; defaults to `adressevaelger123` |
 | `EMODATA_USER` / `EMODATA_PASSWORD` | Energy labels |
 | `DATAFORSYNINGEN_TOKEN` | `get_aerial_photo` |
+| `GOOGLE_MAPS_API_KEY` | `get_map` and `property_report.map` (Maps JavaScript API; allow `http://127.0.0.1:47321/*` if the key is website-restricted) |
 | `CACHE_PATH` | SQLite cache file (default `~/.cache/boligmcp/cache.db`) |
 | `BOLIGMCP_CREDENTIALS_FILE` | Override the credentials file path |
 | `BOLIGMCP_ENV_FILE` | Development only: load this `.env` file |

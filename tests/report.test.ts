@@ -107,10 +107,17 @@ describe("property_report", () => {
 
     const report = (await buildPropertyReport({
       query: "Nørrebrogade 52, 4. tv, 2200 København N",
-    })) as { summary: { designation?: string }; missing: Array<{ source: string }> };
+    })) as {
+      summary: { designation?: string };
+      missing: Array<{ source: string }>;
+      map?: { status: string; source: string };
+    };
 
     expect(report.summary.designation).toContain("Nørrebrogade");
     const missingSources = report.missing.map((item) => item.source);
     expect(missingSources).toContain("emodata");
+    expect(report.map?.status).toBe("unavailable");
+    expect(report.map?.source).toBe("google_maps");
+    expect(missingSources).toContain("google_maps");
   });
 });

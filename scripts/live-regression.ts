@@ -28,7 +28,7 @@ const CASES_DIR = join(ROOT, "tests", "live", "cases");
 /** Groups as in the test plan. */
 const GROUPS: Record<string, string[]> = {
   resolution: ["search_address", "resolve_property"],
-  registers: ["get_buildings", "get_parcel", "get_valuation", "get_trades", "get_property_location"],
+  registers: ["get_buildings", "get_parcel", "get_valuation", "get_trades", "get_owners", "get_company", "get_property_location"],
   land: ["get_plans", "get_site_conditions", "get_environment", "get_heritage", "get_terrain"],
   area: [
     "get_admin_areas",
@@ -50,6 +50,7 @@ const CREDENTIAL_ENV = [
   "DATAFORSYNINGEN_TOKEN",
   "EMODATA_USER",
   "EMODATA_PASSWORD",
+  "GOOGLE_MAPS_API_KEY",
 ];
 
 function parseArgs(argv: string[]) {

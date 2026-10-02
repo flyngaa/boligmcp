@@ -33,6 +33,7 @@
         "EMODATA_USER": "${user_config.emodata_user}",
         "EMODATA_PASSWORD": "${user_config.emodata_password}",
         "DATAFORSYNINGEN_TOKEN": "${user_config.dataforsyningen_token}",
+        "GOOGLE_MAPS_API_KEY": "${user_config.google_maps_api_key}",
         "DATAFORDELER_OAUTH_CLIENT_ID": "${user_config.datafordeler_oauth_client_id}",
         "DATAFORDELER_OAUTH_CLIENT_SECRET": "${user_config.datafordeler_oauth_client_secret}"
       }
@@ -78,6 +79,13 @@
       "type": "string",
       "title": "Dataforsyningen token (optional)",
       "description": "Not used by the core tools yet.",
+      "sensitive": true,
+      "required": false
+    },
+    "google_maps_api_key": {
+      "type": "string",
+      "title": "Google Maps API key (optional)",
+      "description": "Your own key with the Maps JavaScript API enabled. Used by get_map. If website-restricted, allow http://127.0.0.1:47321/*.",
       "sensitive": true,
       "required": false
     }

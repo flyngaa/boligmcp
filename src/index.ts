@@ -16,7 +16,10 @@ import { getEnvironmentAt } from "./sources/miljoportal.js";
 import { getPlansAt, getSiteConditionsAt } from "./sources/plandata.js";
 import { getTerrainAt } from "./sources/datafordeler/dhm.js";
 import { getAerialPhoto } from "./sources/dataforsyningen.js";
+import { nearestBuildingId, viewForPoint } from "./sources/google-maps.js";
+import { getCompany } from "./sources/datafordeler/cvr.js";
 import { getPropertyLocation } from "./sources/datafordeler/ebr.js";
+import { getOwners } from "./sources/datafordeler/owners.js";
 import {
   getAdminAreasAt,
   getBuildingsAndUnits,
@@ -79,7 +82,9 @@ async function locate(input: { query?: string; addressId?: string; bfe?: string 
 
 const noPoint = (source: SourceId) => unavailable(source, "not_found", "Could not get coordinates for address");
 
-const INSTRUCTIONS = `Public Danish property data for an address. Start with property_report or screen_properties.
+const INSTRUCTIONS = `Public Danish property data for an address. Start with property_report or screen_properties. property_report.map is a photorealistic 3D view: for an HTML report, embed map.data.url in an iframe. When the user wants a picture of the building rather than only the government aerial from get_aerial_photo, give them that same URL. Never fetch, read or quote the page: it contains their API key.
+
+Privacy: Bolig-MCP never returns names, CPR numbers or other details of private people. A private owner is only "privatperson" with a share, and people in CVR are only counted. Do not try to find out who a private owner or person is, by combining tools or through any other source, and tell the user that this is not something Bolig-MCP does.
 
 Credentials: every user brings their own. When a result has reason "missing_credentials", tell the user which source is missing and how to get their own access (the result's detail says how), and that they add it with \`${SETUP_COMMAND}\` in a terminal or as an env var in their MCP client config. Never ask the user to paste an API key, password or token into the chat, and never put one in a tool argument. Call list_sources to see what is configured.`;
 
@@ -172,6 +177,30 @@ export function createServer(): McpServer {
   );
 
   tool(
+    "get_owners",
+    "Get the current owners of a property from EJF: for each owner the kind (company, private person, other), ownership type and share. A company owner comes with its CVR data (name, form, status, address, industry). A private person is only reported as such: no name and no CPR number, ever. Needs the user's own EJF OAuth access approved for CustomEjerskabBegraenset, which is a separate approval from sale prices.",
+    addressInput,
+    async ({ bfe, ...input }) => {
+      if (bfe && !input.query?.trim() && !input.addressId?.trim()) return asText(await getOwners(bfe));
+      const resolved = await resolveTarget({ ...input, bfe });
+      if (resolved.status !== "ok") return asText(resolved);
+      if (!resolved.data.bfe) return asText(unavailable("ejf", "not_found", "The address has no BFE, so no owners are recorded."));
+      return asText(forAddress(await getOwners(resolved.data.bfe), resolved.data));
+    },
+  );
+
+  tool(
+    "get_company",
+    "Get public CVR data for a Danish company by its 8-digit CVR number: name, status, company form, start and end date, registered address, industry, head count when CVR has a recent one, and whether it is reklamebeskyttet. For an I/S or K/S, fully liable participants that are companies are listed; people are only counted. Owners and management of a company are not in this source.",
+    {
+      cvr: z
+        .preprocess((value) => (typeof value === "number" && Number.isInteger(value) ? String(value).padStart(8, "0") : value), z.string().trim())
+        .describe("CVR number, 8 digits, e.g. 24256790"),
+    },
+    async ({ cvr }) => asText(await getCompany(cvr)),
+  );
+
+  tool(
     "get_admin_areas",
     "Get municipality, region, parish, court and police districts for an address.",
     addressInput,
@@ -254,6 +283,20 @@ export function createServer(): McpServer {
   );
 
   tool(
+    "get_map",
+    "Photorealistic 3D view of the property on localhost, with a white outline of the building. Same view as property_report.map. For an HTML report, embed data.url in an iframe. Give the user the URL when they want this instead of the government aerial from get_aerial_photo. Never fetch, read or quote the page: it contains their API key, which is not in this result. Needs the user's own GOOGLE_MAPS_API_KEY with the Maps JavaScript API enabled.",
+    addressInput,
+    async (input) => {
+      const { resolved, ids, point, buildings } = await locate(input);
+      if (!ids) return asText(resolved);
+      if (!point) return asText(noPoint("google_maps"));
+      const label = ids.designation ?? input.query ?? "Ejendom";
+      const buildingId = buildings?.status === "ok" ? nearestBuildingId(point, buildings.data.buildings) : undefined;
+      return asText(forAddress(await viewForPoint(label, point.x, point.y, buildingId), ids));
+    },
+  );
+
+  tool(
     "get_environment",
     "Get mapped soil contamination (V1/V2) and the coastal proximity zone at the property. Each locality says whether it is on the property (point inside or parcel listed) or only nearby (~80 m).",
     addressInput,
@@ -331,7 +374,7 @@ export function createServer(): McpServer {
 
   tool(
     "property_report",
-    "Build a combined report for a Danish address or BFE with investor flags (asbestos, fossil heating, area composition, building rights headroom, plan proposals, flood/noise/groundwater, tenancy, drainage). Marks missing sources. summary.matchWarning says when the address found is not exactly the one asked for. Use bfe for a property without a street address.",
+    "Build a combined report for a Danish address or BFE with investor flags (asbestos, fossil heating, area composition, building rights headroom, plan proposals, flood/noise/groundwater, tenancy, drainage). Marks missing sources. summary.matchWarning says when the address found is not exactly the one asked for. Use bfe for a property without a street address. map is a photorealistic 3D view: embed map.data.url in an iframe for an HTML report, or give the user that URL instead of only the government aerial. Never fetch the page.",
     addressInput,
     async (input) => {
       if (!input.query?.trim() && !input.addressId?.trim() && !input.bfe) {

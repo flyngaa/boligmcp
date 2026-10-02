@@ -187,6 +187,10 @@ supplementary town names to find the postcode. `kommunekode` could narrow a sear
 
 **get_trades** — sales newest first, market sales identifiable, no placeholder dates, no identities.
 
+**get_owners** — a company owner by CVR with its CVR data; a private owner only as `private_person` with a share; never a CPR number or a private person's name, and the query never asks for `ejendePersonBegraenset`. `requires_agreement` until `CustomEjerskabBegraenset` is approved.
+
+**get_company** — name, form, status and address for a CVR number; people in an I/S or K/S counted, never named; no head count older than two years (Datafordeleren's copy stopped in 2019).
+
 | Case | Input | Expect |
 |---|---|---|
 | sale | villa | 550.000 kr. 1990-07-31; the rolled-back 275.000 kr. row is left out |
@@ -206,7 +210,7 @@ supplementary town names to find the postcode. `kommunekode` could narrow a sear
 
 #### Group 2 results (round 5, 2026-09-26)
 
-Cases: `get_buildings` (18), `get_parcel` (10), `get_valuation` (10), `get_trades` (7), `get_property_location` (5). All pass.
+Cases: `get_buildings` (18), `get_parcel` (10), `get_valuation` (10), `get_trades` (7), `get_owners` (3), `get_company` (6), `get_property_location` (5). All pass.
 
 | Finding | Severity | Fix |
 |---|---|---|

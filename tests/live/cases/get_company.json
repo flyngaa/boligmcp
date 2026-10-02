@@ -1,0 +1,8 @@
+[
+  {"id": "gc_novo", "tool": "get_company", "args": {"cvr": "24256790"}, "expect": [{"path": "data.name", "equals": "NOVO NORDISK A/S"}, {"path": "data.form", "equals": "Aktieselskab"}, {"path": "data.status", "equals": "aktiv"}, {"path": "data.address", "matches": "Novo Alle 1, 2880 Bagsværd"}, {"path": "$text", "notMatches": "registreringstid|CVRPerson"}]},
+  {"id": "gc_is_people_counted", "tool": "get_company", "args": {"cvr": "36251778"}, "expect": [{"path": "data.form", "equals": "Interessentskab"}, {"path": "data.liableParticipants.people", "range": [1, 20]}, {"path": "data.liableParticipants.companies.length", "equals": 0}], "why": "people in an I/S are counted, never named"},
+  {"id": "gc_number", "tool": "get_company", "args": {"cvr": 10150817}, "expect": [{"path": "data.name", "equals": "Erhvervsstyrelsen"}]},
+  {"id": "gc_short", "tool": "get_company", "args": {"cvr": "1234"}, "expect": [{"path": "reason", "equals": "not_found"}]},
+  {"id": "gc_unknown", "tool": "get_company", "args": {"cvr": "00000000"}, "expect": [{"path": "reason", "equals": "not_found"}]},
+  {"id": "gc_no_key", "tool": "get_company", "args": {"cvr": "24256790"}, "env": "no_credentials", "expect": [{"path": "reason", "equals": "missing_credentials"}, {"path": "detail", "matches": "Do not ask the user to paste"}]}
+]
