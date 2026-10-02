@@ -52,9 +52,6 @@ export function mapPage(input: { label: string; lat: number; lon: number; apiKey
   <style>
     html, body { height: 100%; margin: 0; background: #111; color: #f4f4f4; font-family: ui-sans-serif, system-ui, sans-serif; }
     gmp-map-3d { display: block; height: 100%; width: 100%; }
-    .bar { position: fixed; z-index: 2; top: 16px; left: 16px; max-width: 380px; padding: 12px 14px; background: #161616; }
-    h1 { margin: 0 0 4px; font-size: 16px; font-weight: 600; }
-    p { margin: 0; font-size: 12px; line-height: 1.4; color: #bdbdbd; }
     .err { display: none; position: fixed; inset: 0; z-index: 3; place-items: center; padding: 24px; background: #111; }
     .err.show { display: grid; }
     .err p { max-width: 420px; font-size: 14px; color: #f4f4f4; }
@@ -62,11 +59,7 @@ export function mapPage(input: { label: string; lat: number; lon: number; apiKey
   <script async src="https://maps.googleapis.com/maps/api/js?key=${key}&v=beta&libraries=maps3d&language=da&region=DK" onerror="document.getElementById('err').classList.add('show')"></script>
 </head>
 <body>
-  <gmp-map-3d id="map" mode="hybrid" center="${lat},${lon}" range="4500" tilt="28" heading="210" description="${label}"></gmp-map-3d>
-  <div class="bar">
-    <h1>${label}</h1>
-    <p>Træk for at se dig omkring. Rul for at komme tættere på. Skift-træk vipper, ctrl-træk drejer.</p>
-  </div>
+  <gmp-map-3d id="map" mode="satellite" default-ui-hidden center="${lat},${lon}" range="4500" tilt="28" heading="210"></gmp-map-3d>
   <div class="err" id="err">
     <p>Kortet kunne ikke indlæses. Slå Maps JavaScript API til på nøglen, og tillad http://127.0.0.1:${MAP_PORT}/* hvis den er begrænset til websites.</p>
   </div>
@@ -89,10 +82,11 @@ export function mapPage(input: { label: string; lat: number; lon: number; apiKey
     const approach = () => {
       if (started) return;
       started = true;
-      map.flyCameraTo({
+      const flight = map.flyCameraTo({
         endCamera: { center: focus, range: 160, tilt: 72, heading: 40 },
         durationMillis: 7000,
       });
+      if (flight && typeof flight.then === "function") flight.then(orbit, orbit);
       setTimeout(orbit, 7600);
     };
     customElements.whenDefined("gmp-map-3d").then(async () => {

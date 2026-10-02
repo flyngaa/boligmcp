@@ -8,9 +8,11 @@ afterEach(async () => {
 });
 
 describe("3D map page", () => {
-  it("centers a hybrid 3D map and escapes the label", () => {
+  it("centers a satellite 3D map and escapes the label", () => {
     const html = mapPage({ label: `Thostrupvej 4 <script>`, lat: 56.1234567, lon: 9.5, apiKey: "test-key" });
-    expect(html).toContain('mode="hybrid"');
+    expect(html).toContain('mode="satellite"');
+    expect(html).toContain("default-ui-hidden");
+    expect(html).not.toContain("Træk for at se");
     expect(html).toContain('range="4500"');
     expect(html).toContain("flyCameraAround");
     expect(html).toContain("repeatCount: Infinity");
