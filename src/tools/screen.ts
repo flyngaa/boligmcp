@@ -1,5 +1,5 @@
 import { bfeDwellingArea, buildFlags, flagInputFrom } from "../analysis/flags.js";
-import { collectPropertyData, missingSources, summarize } from "./property-report.js";
+import { collectPropertyData, missingSources, sourcesUsed, summarize } from "./property-report.js";
 
 export const SCREEN_MAX_ADDRESSES = 25;
 const CONCURRENCY = 3;
@@ -24,6 +24,7 @@ async function mapLimited<T, R>(items: T[], limit: number, fn: (item: T, index: 
  */
 export async function screenProperties(addresses: string[]) {
   const unique = [...new Set(addresses.map((item) => item.trim()).filter(Boolean))].slice(0, SCREEN_MAX_ADDRESSES);
+  const credits = new Set<string>();
   const rows = await mapLimited(unique, CONCURRENCY, async (query) => {
     try {
       // A bare number is a BFE: properties without a street address can be screened too.
@@ -34,6 +35,7 @@ export async function screenProperties(addresses: string[]) {
       }
       const summary = summarize(data);
       const flags = buildFlags(flagInputFrom(data));
+      for (const credit of sourcesUsed(data)) credits.add(credit);
       const valuation = data.valuation?.status === "ok" ? data.valuation.data.latestNew : undefined;
       const oldValuation = data.valuation?.status === "ok" && !valuation ? data.valuation.data.latestOld : undefined;
       // The valuation is the BFE's: divide by the area the BFE covers, not one rental flat's.
@@ -100,6 +102,7 @@ export async function screenProperties(addresses: string[]) {
     screened: rows.length,
     skipped: Math.max(0, addresses.length - unique.length),
     rows: marked,
+    sources: [...credits],
     note: "Flags are signals for further checks, not advice. Area statistics and energy labels are left out; call property_report for one address.",
   };
 }

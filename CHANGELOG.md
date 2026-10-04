@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Sources
+- Every ok result carries an `attribution` crediting its source and licence, and `property_report` and `screen_properties` list them in `sources`. The licences (mostly CC BY 4.0) require that credit wherever the data is shown.
+- The server instructions ask the agent to keep those credits in every answer, report or file, and to mark reklamebeskyttede companies.
+- The README has a "Data sources and licences" table with each source's owner, licence and terms.
+
 ### Privacy
 - Every Datafordeleren query is checked before it is sent: one that mentions CVR's people, `EJF_Ejerskab`, owner names or details, or a CPR field is refused (`PRIVACY_BLOCKED`).
 - The server instructions tell the agent that Bolig-MCP never returns data about private people, and never to try to identify a private owner by other means.
@@ -15,7 +20,7 @@
 
 ## 0.2.0 (2026-09-27)
 
-First release on npm: `npx -y boligmcp`.
+First release. Not on npm yet: install from source (see the README).
 
 ### New
 - Live regression suite: `pnpm live` runs the cases in `tests/live/cases/` through the real server against the live registers, also as built (`--dist`); `pnpm live:sample` checks reports for random addresses (see docs/test-plan.md).
