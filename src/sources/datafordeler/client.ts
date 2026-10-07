@@ -72,8 +72,26 @@ async function requestToken(clientId: string, secret: string): Promise<string> {
   }
   const body = (await response.json()) as { access_token?: string; expires_in?: number };
   if (!body.access_token) throw new Error("OAuth token response had no access_token.");
+  // An expired Shared Secret still gets a token, but every service rejects it with 401: say why up front.
+  const secretExpires = secretExpiry(body.access_token);
+  if (secretExpires && secretExpires.getTime() < Date.now()) {
+    throw new Error(
+      `OAUTH_REJECTED: The Shared Secret of the OAuth IT-system expired on ${secretExpires.toISOString().slice(0, 10)}. Create a new Shared Secret for the IT-system in Datafordeler Selvbetjening.`,
+    );
+  }
   token = { value: body.access_token, expiresAt: Date.now() + (body.expires_in ?? 300) * 1000, clientId };
   return token.value;
+}
+
+/** The `expiration_date` claim Datafordeleren puts in a token: when the IT-system's Shared Secret expires. */
+export function secretExpiry(accessToken: string): Date | undefined {
+  try {
+    const payload = JSON.parse(Buffer.from(accessToken.split(".")[1] ?? "", "base64url").toString("utf8")) as { expiration_date?: unknown };
+    const date = typeof payload.expiration_date === "string" ? new Date(payload.expiration_date) : undefined;
+    return date && Number.isFinite(date.getTime()) ? date : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function nowIso(): string {
@@ -139,6 +157,11 @@ export async function graphql<T>(
         body: { query, variables },
       });
     } catch (error) {
+      if (error instanceof HttpError && error.status === 401 && auth === "oauth") {
+        throw new Error(
+          "Datafordeleren rejected the OAuth token (401). The IT-system's Shared Secret may have expired or been replaced; check it in Datafordeler Selvbetjening.",
+        );
+      }
       if (error instanceof HttpError && error.status === 401) {
         throw new Error(
           "Datafordeleren rejected the API key (401). Confirm it is an IT-system API-key (not ClientId) and that at least 15 minutes have passed since it was created.",
