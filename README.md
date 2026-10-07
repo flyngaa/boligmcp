@@ -6,24 +6,6 @@ It does **not** use DAWA (`dawa.aws.dk` closes 1 October 2026). Address search g
 
 Data about private people is never requested. See [Privacy](#privacy).
 
-## Privacy
-
-Bolig-MCP is about properties, not people. It never reads the names, CPR numbers or other details of private people,
-not even to filter them out afterwards:
-
-- **Owners:** a company owner is shown by CVR number and company data. A private owner is only "privatperson" with a
-  share. Owners come from `EJFCustom_EjerskabBegraenset`, the service private actors may be granted, never from
-  `EJF_Ejerskab`, which carries CPR numbers.
-- **CVR:** people in CVR (`CVRPerson`) are confidential. A company's fully liable participants are shown when they are
-  companies; people are only counted.
-- **Sale prices:** dates and prices, never the names of buyers or sellers.
-
-This is enforced in code, not only by convention. Every Datafordeleren query goes through one function that refuses
-person entities and CPR fields before anything is sent (`assertNoPersonData` in
-[`client.ts`](src/sources/datafordeler/client.ts)), and [`tests/privacy.test.ts`](tests/privacy.test.ts) guards it.
-The server also tells the agent never to try to identify a private owner by other means. Contributors and their coding
-agents follow the same rules: see [AGENTS.md](AGENTS.md).
-
 ## Install
 
 Bolig-MCP is not on npm yet, so install it from source. You need Node.js 20 or newer and [pnpm](https://pnpm.io).
@@ -183,6 +165,24 @@ files you build from the data.
 | 3D map | Google Maps Platform | Your own key and Google's terms; Google's logo and credits stay on the map | [Google](https://developers.google.com/maps/documentation/javascript/policies) |
 
 Never used: Tingbogen, and the EJF and CVR data about private people (see [Privacy](#privacy)).
+
+## Privacy
+
+Bolig-MCP is about properties, not people. It never reads the names, CPR numbers or other details of private people,
+not even to filter them out afterwards:
+
+- **Owners:** a company owner is shown by CVR number and company data. A private owner is only "privatperson" with a
+  share. Owners come from `EJFCustom_EjerskabBegraenset`, the service private actors may be granted, never from
+  `EJF_Ejerskab`, which carries CPR numbers.
+- **CVR:** people in CVR (`CVRPerson`) are confidential. A company's fully liable participants are shown when they are
+  companies; people are only counted.
+- **Sale prices:** dates and prices, never the names of buyers or sellers.
+
+This is enforced in code, not only by convention. Every Datafordeleren query goes through one function that refuses
+person entities and CPR fields before anything is sent (`assertNoPersonData` in
+[`client.ts`](src/sources/datafordeler/client.ts)), and [`tests/privacy.test.ts`](tests/privacy.test.ts) guards it.
+The server also tells the agent never to try to identify a private owner by other means. Contributors and their coding
+agents follow the same rules: see [AGENTS.md](AGENTS.md).
 
 ## Licence
 
