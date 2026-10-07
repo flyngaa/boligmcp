@@ -28,6 +28,9 @@ agents follow the same rules: see [AGENTS.md](AGENTS.md).
 
 Bolig-MCP is not on npm yet, so install it from source. You need Node.js 20 or newer and [pnpm](https://pnpm.io).
 
+The easiest way: clone the repo, open it in Claude Code (or another coding agent) and ask it to set Bolig-MCP up.
+[AGENTS.md](AGENTS.md) walks it through every step, and you enter the keys yourself in your own terminal.
+
 ```bash
 git clone https://github.com/flyngaa/boligmcp.git
 cd boligmcp
