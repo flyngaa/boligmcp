@@ -4,7 +4,7 @@ import { listSourceStatus } from "../src/catalog.js";
 import { resetConfigForTests, type AppConfig } from "../src/config.js";
 import { resetCacheForTests } from "../src/lib/cache.js";
 import * as http from "../src/lib/http.js";
-import { getOAuthToken, resetOAuthTokenForTests } from "../src/sources/datafordeler/client.js";
+import { getOAuthToken, resetOAuthTokenForTests, secretExpiry } from "../src/sources/datafordeler/client.js";
 import { getTrades } from "../src/sources/datafordeler/registers.js";
 
 const base: AppConfig = { adressevaelgerToken: "adressevaelger123", cachePath: ":memory:" };
@@ -22,6 +22,27 @@ afterEach(() => {
 });
 
 describe("EJF OAuth", () => {
+  const jwt = (claims: Record<string, unknown>) => `h.${Buffer.from(JSON.stringify(claims)).toString("base64url")}.s`;
+
+  it("says the Shared Secret expired instead of a bare 401", async () => {
+    resetConfigForTests({ ...withOAuth, datafordelerApiKey: "api-key" });
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async () => new Response(JSON.stringify({ access_token: jwt({ expiration_date: "2026-10-05T23:59:59.0000000+02:00" }), expires_in: 3600 }), { status: 200 }));
+    const graphql = vi.spyOn(http, "fetchJson");
+    const result = await getTrades("3451459");
+    expect(result).toMatchObject({ status: "unavailable", reason: "missing_credentials" });
+    expect(result.status === "unavailable" && result.detail).toMatch(/Shared Secret .*expired on 2026-10-05.*Selvbetjening.*boligmcp setup/s);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(graphql).not.toHaveBeenCalled();
+  });
+
+  it("reads the Shared Secret expiry from a token, and ignores tokens without one", () => {
+    expect(secretExpiry(jwt({ expiration_date: "2027-01-31T23:59:59.0000000+01:00" }))?.toISOString()).toBe("2027-01-31T22:59:59.000Z");
+    expect(secretExpiry(jwt({}))).toBeUndefined();
+    expect(secretExpiry("tok-123")).toBeUndefined();
+  });
+
   it("asks the user for their own access when no OAuth client is configured", async () => {
     resetConfigForTests({ ...base, datafordelerApiKey: "api-key" });
     const result = await getTrades("3451459");

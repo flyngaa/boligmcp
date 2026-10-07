@@ -45,6 +45,8 @@ input and saves it to `~/.config/boligmcp/credentials.json`.
       and **Shared Secret** (not the API key).
 
    Until it is approved, `get_trades` and `get_owners` answer `requires_agreement`; everything else works.
+   A Shared Secret has an expiry date. When it passes, both tools say so: the user creates a new Shared Secret for
+   the IT-system in Selvbetjening and enters it with `node dist/index.js setup`.
 
 Details and troubleshooting are in [docs/credentials.md](docs/credentials.md).
 
