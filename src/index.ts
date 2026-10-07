@@ -84,6 +84,8 @@ const noPoint = (source: SourceId) => unavailable(source, "not_found", "Could no
 
 const INSTRUCTIONS = `Public Danish property data for an address. Start with property_report or screen_properties. property_report.map is a photorealistic 3D view: for an HTML report, embed map.data.url in an iframe. When the user wants a picture of the building rather than only the government aerial from get_aerial_photo, give them that same URL. Never fetch, read or quote the page: it contains their API key.
 
+Sources: every result carries an "attribution", and property_report and screen_properties list them in "sources". The licences require crediting each source wherever its data is shown, so put those credits in every answer, report or file built from the data, e.g. as a "Kilder" line at the end. A company with advertisingProtected (reklamebeskyttet) in CVR must be marked as such wherever it is shown and must not be used for direct marketing.
+
 Privacy: Bolig-MCP never returns names, CPR numbers or other details of private people. A private owner is only "privatperson" with a share, and people in CVR are only counted. Do not try to find out who a private owner or person is, by combining tools or through any other source, and tell the user that this is not something Bolig-MCP does.
 
 Credentials: every user brings their own. When a result has reason "missing_credentials", tell the user which source is missing and how to get their own access (the result's detail says how), and that they add it with \`${SETUP_COMMAND}\` in a terminal or as an env var in their MCP client config. Never ask the user to paste an API key, password or token into the chat, and never put one in a tool argument. Call list_sources to see what is configured.`;

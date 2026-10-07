@@ -28,6 +28,9 @@ agents follow the same rules: see [AGENTS.md](AGENTS.md).
 
 Bolig-MCP is not on npm yet, so install it from source. You need Node.js 20 or newer and [pnpm](https://pnpm.io).
 
+The easiest way: clone the repo, open it in Claude Code (or another coding agent) and ask it to set Bolig-MCP up.
+[AGENTS.md](AGENTS.md) walks it through every step, and you enter the keys yourself in your own terminal.
+
 ```bash
 git clone https://github.com/flyngaa/boligmcp.git
 cd boligmcp
@@ -156,6 +159,31 @@ pnpm exec tsx scripts/probe-fields.ts BBR BBR_Bygning '{"id_lokalId":{"eq":"<id>
 
 Introspection is disabled on Datafordeleren, so `probe-fields.ts` asks for one field at a time and reports which exist.
 
+## Data sources and licences
+
+All data comes from public Danish registers, fetched live with your own access. Bolig-MCP does not store or
+redistribute a copy. Every result carries an `attribution`, and `property_report` and `screen_properties` list them in
+`sources`. The licences require crediting the source wherever its data is shown, so keep those credits in reports and
+files you build from the data.
+
+| Source | Owner | Licence | Terms |
+|---|---|---|---|
+| DAR (addresses), via Adressevælgeren and Datafordeleren | Klimadatastyrelsen | CC BY 4.0 | [Datafordeler](https://datafordeler.dk/vejledning/brugervilkaar/danmarks-adresseregister-dar/) |
+| BBR | Bygnings- og Boligregistret | CC BY 4.0 | [Datafordeler](https://datafordeler.dk/vejledning/brugervilkaar/bygnings-og-boligregistret-bbr/) |
+| Matriklen, EBR | Geodatastyrelsen | CC BY 4.0 | [Datafordeler](https://datafordeler.dk/vejledning/brugervilkaar/ejendomsoplysninger-ebr-og-mat/) |
+| Ejendomsvurdering (VUR) | Vurderingsstyrelsen | CC BY 4.0 | [Datafordeler](https://datafordeler.dk/vejledning/brugervilkaar/ejendomsvurdering-vur/) |
+| Ejerfortegnelsen (EJF), level 1 | Geodatastyrelsen | CC BY 4.0 | [Datafordeler](https://datafordeler.dk/vejledning/brugervilkaar/ejerfortegnelsen-ejf/) |
+| CVR | Erhvervsstyrelsen | CC BY 4.0. Reklamebeskyttede companies must be marked and not used for direct marketing | [Datafordeler](https://datafordeler.dk/vejledning/brugervilkaar/det-centrale-virksomhedsregister-cvr/) |
+| DAGI, Danmarks Højdemodel, GeoDanmark, orthophoto, skråfoto | Klimadatastyrelsen | CC BY 4.0 | [Datafordeler](https://datafordeler.dk/vejledning/brugervilkaar/kds-geografiske-data/) |
+| Plandata.dk | Erhvervsstyrelsen | Open web services, no access constraints | [Plandata.dk](https://planinfo.erhvervsstyrelsen.dk/om-plandatadk) |
+| Soil contamination (DKJord) | Danske Regioner, via Danmarks Miljøportal | CC0 1.0. Miljøportal's terms ask for the notice "Indeholder data, som benyttes i henhold til vilkår for brug af danske offentlige data" | [Miljøportal](https://miljoeportal.dk/dataansvar/vilkaar-for-brug/) |
+| Fredede og bevaringsværdige bygninger (FBB) | Slots- og Kulturstyrelsen | Free use for most purposes | [SLKS](https://slks.dk/omraader/kulturarv/databaserne/rettigheder-til-data) |
+| Danmarks Statistik | Danmarks Statistik | Free with credit (equivalent to CC BY 4.0) | [DST](https://www.dst.dk/da/presse/kildeangivelse) |
+| Energy labels (EMOData) | Energistyrelsen | Your own EMOData agreement | Your agreement |
+| 3D map | Google Maps Platform | Your own key and Google's terms; Google's logo and credits stay on the map | [Google](https://developers.google.com/maps/documentation/javascript/policies) |
+
+Never used: Tingbogen, and the EJF and CVR data about private people (see [Privacy](#privacy)).
+
 ## Licence
 
-MIT
+MIT, for the code. The data keeps the licences above.

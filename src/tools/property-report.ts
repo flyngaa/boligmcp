@@ -344,22 +344,9 @@ export function summarize(data: PropertyData) {
   };
 }
 
-export function missingSources(data: PropertyData): Array<{ source: string; reason: string; detail?: string }> {
-  const missing: Array<{ source: string; reason: string; detail?: string }> = [];
-  const seen = new Set<string>();
-  const collect = (result: SourceResult<unknown> | undefined) => {
-    if (result?.status !== "unavailable") return;
-    const key = `${result.source}:${result.reason}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    missing.push({ source: result.source, reason: result.reason, detail: result.detail });
-  };
-  // Nothing resolved: only why. Other sources were not asked, so their credential hints would mislead.
-  if (data.idsResult.status !== "ok") {
-    collect(data.idsResult);
-    return missing;
-  }
-  for (const result of [
+/** Every source result gathered for one property, besides the address lookup. */
+function sourceResults(data: PropertyData): Array<SourceResult<unknown> | undefined> {
+  return [
     data.buildings,
     data.parcel,
     data.valuation,
@@ -379,7 +366,31 @@ export function missingSources(data: PropertyData): Array<{ source: string; reas
     data.market,
     data.heritage,
     data.map,
-  ]) {
+  ];
+}
+
+/** The credit for each source the answer used. The licences require it wherever the data is shown. */
+export function sourcesUsed(data: PropertyData): string[] {
+  const credits = [data.idsResult, ...sourceResults(data)].flatMap((result) => (result?.status === "ok" ? [result.attribution] : []));
+  return [...new Set(credits)];
+}
+
+export function missingSources(data: PropertyData): Array<{ source: string; reason: string; detail?: string }> {
+  const missing: Array<{ source: string; reason: string; detail?: string }> = [];
+  const seen = new Set<string>();
+  const collect = (result: SourceResult<unknown> | undefined) => {
+    if (result?.status !== "unavailable") return;
+    const key = `${result.source}:${result.reason}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    missing.push({ source: result.source, reason: result.reason, detail: result.detail });
+  };
+  // Nothing resolved: only why. Other sources were not asked, so their credential hints would mislead.
+  if (data.idsResult.status !== "ok") {
+    collect(data.idsResult);
+    return missing;
+  }
+  for (const result of sourceResults(data)) {
     collect(result);
   }
   // State land such as Christiansø is outside the cadastre: an address, but no property number.
@@ -453,6 +464,7 @@ export async function buildPropertyReport(input: {
     heritage: data.heritage,
     map: data.map,
     missing,
+    sources: sourcesUsed(data),
   };
 
   if (estimateTokens(report) > TOKEN_BUDGET) {
@@ -462,6 +474,7 @@ export async function buildPropertyReport(input: {
       ids: data.idsResult.status === "ok" ? { status: "ok", data: data.ids } : data.idsResult,
       map: data.map,
       missing,
+      sources: report.sources,
       note: `Report truncated to stay under ~${TOKEN_BUDGET.toLocaleString("en")} tokens. Call individual tools for full fields.`,
     };
   }

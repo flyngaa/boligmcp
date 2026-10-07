@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ATTRIBUTION } from "./attribution.js";
 
 export const SourceIdSchema = z.enum([
   "adressevaelger",
@@ -35,6 +36,7 @@ export const SourceResultOkSchema = <T extends z.ZodTypeAny>(data: T) =>
     status: z.literal("ok"),
     source: SourceIdSchema,
     fetchedAt: z.string(),
+    attribution: z.string(),
     data,
   });
 
@@ -46,7 +48,7 @@ export const SourceResultUnavailableSchema = z.object({
 });
 
 export type SourceResult<T> =
-  | { status: "ok"; source: SourceId; fetchedAt: string; data: T }
+  | { status: "ok"; source: SourceId; fetchedAt: string; attribution: string; data: T }
   | {
       status: "unavailable";
       source: SourceId;
@@ -59,6 +61,7 @@ export function ok<T>(source: SourceId, data: T): SourceResult<T> {
     status: "ok",
     source,
     fetchedAt: new Date().toISOString(),
+    attribution: ATTRIBUTION[source],
     data,
   };
 }
